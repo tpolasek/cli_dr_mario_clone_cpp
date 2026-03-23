@@ -325,10 +325,8 @@ void handle_input() {
         case 'a': case 'A': t.c--; if (fits(t)) cap = t; break;
         case 'd': case 'D': t.c++; if (fits(t)) cap = t; break;
         case 's': case 'S': {
-            while (true) {
-                t = cap; t.r++;
-                if (fits(t)) cap = t; else break;
-            }
+            t = cap; t.r++;
+            if (fits(t)) cap = t;
             break;
         }
         case 'w': case 'W': {
@@ -480,8 +478,10 @@ int main() {
     music_pid = fork();
     if (music_pid == 0) {
         // child process - loop music
-        while (true) system("afplay queque.mp3");
-        _exit(1);
+        while (true) {
+            execlp("afplay", "afplay", "queque.mp3", nullptr);
+            _exit(1);
+        }
     }
 
     // ---- init ----
@@ -572,7 +572,6 @@ int main() {
 
     // stop music
     if (music_pid > 0) kill(music_pid, SIGTERM);
-    system("pkill afplay");
 
     // wait for any key to exit
     while (true) {
