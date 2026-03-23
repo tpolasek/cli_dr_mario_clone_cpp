@@ -74,16 +74,17 @@ struct Capsule {
     int r1() const { return r; }
     int c1() const { return c; }
     int r2() const {
-        if (orient == 1) return r - 1;
-        if (orient == 3) return r + 1;
+        if (orient == 1 || orient == 3) return r - 1;
         return r;
     }
     int c2() const {
-        if (orient == 0) return c + 1;
-        if (orient == 2) return c - 1;
+        if (orient == 0 || orient == 2) return c + 1;
         return c;
     }
-    void rotate() { orient = (orient + 3) & 3; }
+    void rotate() {
+        if ((orient & 1) == 0) std::swap(h1, h2);
+        orient = (orient + 1) & 3;
+    }
 };
 
 enum class Phase { PLAYING, GRAVITY };
