@@ -17,6 +17,8 @@
 #include <termios.h>
 #include <unistd.h>
 #include <poll.h>
+#include <sys/wait.h>
+#include <signal.h>
 
 // ====================== CONSTANTS ======================
 
@@ -101,6 +103,8 @@ static bool game_over = false;
 static bool game_won = false;
 static Phase phase = Phase::PLAYING;
 static int next_cap_id = 1;
+static int anim_frame = 0;
+static pid_t music_pid = 0;
 
 // ====================== HELPERS ======================
 
@@ -369,11 +373,14 @@ void render() {
     struct CellView { std::string txt; };
     std::vector<std::vector<CellView>> buf(ROWS, std::vector<CellView>(COLS));
 
+    anim_frame++;
+    const char* virus_char = (anim_frame & 32) ? "\u2742" : "\u2747"; // circled asterisk / sparkle
+
     for (int r = 0; r < ROWS; r++)
         for (int c = 0; c < COLS; c++) {
             if (grid[r][c].color != EMPTY) {
                 if (grid[r][c].virus)
-                    buf[r][c].txt = std::string(dark_ansi(grid[r][c].color)) + "\u25C8\u25C8";
+                    buf[r][c].txt = std::string(dark_ansi(grid[r][c].color)) + virus_char + virus_char;
                 else
                     buf[r][c].txt = std::string(clr_ansi(grid[r][c].color)) + "\u2588\u2588";
             } else {
@@ -469,6 +476,14 @@ int main() {
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
 
+    // ---- start music ----
+    music_pid = fork();
+    if (music_pid == 0) {
+        // child process - loop music
+        while (true) system("afplay queque.mp3");
+        _exit(1);
+    }
+
     // ---- init ----
     score = 0;
     game_over = false;
@@ -554,6 +569,10 @@ int main() {
     }
 
     render();
+
+    // stop music
+    if (music_pid > 0) kill(music_pid, SIGTERM);
+    system("pkill afplay");
 
     // wait for any key to exit
     while (true) {
