@@ -408,7 +408,7 @@ void render() {
         if (r == 7) {
             std::cout << "   \033[90mNext:\033[0m "
                       << clr_ansi(nxt.h1) << "\u2588\u2588"
-                      << clr_ansi(nxt.h2) << "\u2588\033[0m";
+                      << clr_ansi(nxt.h2) << "\u2588\u2588\033[0m";
         }
         if (r == 10) std::cout << "   \033[90mA/D  Move\033[0m";
         if (r == 11) std::cout << "   \033[90mW    Rotate\033[0m";
