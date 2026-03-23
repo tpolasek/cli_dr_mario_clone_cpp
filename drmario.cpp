@@ -389,11 +389,11 @@ void render() {
         overlay(cap.r2(), cap.c2(), cap.h2);
     }
 
-    std::cout << "\033[H";
+    std::cout << "\033[2J\033[H";
     std::cout << "\033[97;1m  DR. MARIO\033[0m\n\n";
 
-    std::cout << "    \033[90m  .-----------.  \033[0m\n";
-    std::cout << "    \033[90m  |           |  \033[0m\n";
+    std::cout << "    \033[90m  .----------------.  \033[0m\n";
+    std::cout << "    \033[90m  |                |  \033[0m\n";
 
     for (int r = 0; r < ROWS; r++) {
         std::cout << "    \033[90m  |\033[0m";
@@ -418,7 +418,7 @@ void render() {
         std::cout << "\033[0m\n";
     }
 
-    std::cout << "    \033[90m  '-----------'  \033[0m\n";
+    std::cout << "    \033[90m  '----------------'  \033[0m\n";
 
     if (phase == Phase::GRAVITY)
         std::cout << "\n  \033[96m  Settling...\033[0m\n";
