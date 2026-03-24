@@ -1,6 +1,6 @@
 #pragma once
 
-#include "types.h"
+#include "board.h"
 
 // Persistent state for bot AI decision-making across calls.
 struct BotState {

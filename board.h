@@ -68,6 +68,16 @@ inline const char* dark_ansi(int c) {
 
 // ====================== PLAYER STATE ======================
 
+inline int rnd_color() { return 1 + std::rand() % 3; }
+
+inline void spawn(Capsule& c) {
+    c.h1 = rnd_color();
+    c.h2 = rnd_color();
+    c.c = COLS / 2 - 1;
+    c.r = 0;
+    c.orient = 0;
+}
+
 struct PlayerBoard {
     std::array<std::array<Piece, COLS>, ROWS> grid;
     Capsule cap, nxt;
@@ -322,51 +332,37 @@ struct PlayerBoard {
         std::cout << "\033[" << (6 + ROWS) << ";" << x_offset << "H";
         std::cout << "\033[90m  '----------------'\033[0m";
     }
-};
 
-// ====================== BOARD HELPERS ======================
-
-inline int rnd_color() { return 1 + std::rand() % 3; }
-
-inline void spawn(Capsule& c) {
-    c.h1 = rnd_color();
-    c.h2 = rnd_color();
-    c.c = COLS / 2 - 1;
-    c.r = 0;
-    c.orient = 0;
-}
-
-inline void place_viruses(PlayerBoard& board, int count) {
-    int placed = 0;
-    while (placed < count) {
-        int r = 4 + std::rand() % (ROWS - 4);
-        int c = std::rand() % COLS;
-        if (board.grid[r][c].color == EMPTY) {
-            board.grid[r][c].color = rnd_color();
-            board.grid[r][c].virus = true;
-            board.grid[r][c].capId = 0;
-            placed++;
+    void place_viruses(int count) {
+        int placed = 0;
+        while (placed < count) {
+            int r = 4 + std::rand() % (ROWS - 4);
+            int c = std::rand() % COLS;
+            if (grid[r][c].color == EMPTY) {
+                grid[r][c].color = rnd_color();
+                grid[r][c].virus = true;
+                grid[r][c].capId = 0;
+                placed++;
+            }
         }
+        total_viruses = count;
+        cleared_viruses = 0;
     }
-    board.total_viruses = count;
-    board.cleared_viruses = 0;
-}
 
-inline void new_piece(PlayerBoard& board) {
-    board.cap = board.nxt;
-    spawn(board.nxt);
-    if (!board.fits(board.cap)) board.game_over = true;
-}
+    void new_piece() {
+        cap = nxt;
+        spawn(nxt);
+        if (!fits(cap)) game_over = true;
+    }
 
-inline void init_board(PlayerBoard& board, int virus_count) {
-    board.clear_grid();
-    board.score = 0;
-    board.game_over = false;
-    board.game_won = false;
-    board.phase = Phase::PLAYING;
-    place_viruses(board, virus_count);
-    spawn(board.nxt);
-    new_piece(board);
-}
-
-// ====================== RENDERING ======================
+    void init(int virus_count) {
+        clear_grid();
+        score = 0;
+        game_over = false;
+        game_won = false;
+        phase = Phase::PLAYING;
+        place_viruses(virus_count);
+        spawn(nxt);
+        new_piece();
+    }
+};
