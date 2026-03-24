@@ -151,8 +151,7 @@ struct PlayerBoard {
                 if (same) { run++; }
                 else {
                     if (run >= 4) {
-                        int color = grid[r][c - 1].color;
-                        if (!grid[r][c - 1].virus) colors_cleared.push_back(color);
+                        colors_cleared.push_back(grid[r][c - 1].color);
                         for (int k = c - run; k < c; k++) kill[r][k] = true;
                     }
                     run = 1;
@@ -167,8 +166,7 @@ struct PlayerBoard {
                 if (same) { run++; }
                 else {
                     if (run >= 4) {
-                        int color = grid[r - 1][c].color;
-                        if (!grid[r - 1][c].virus) colors_cleared.push_back(color);
+                        colors_cleared.push_back(grid[r - 1][c].color);
                         for (int k = r - run; k < r; k++) kill[k][c] = true;
                     }
                     run = 1;
@@ -191,10 +189,7 @@ struct PlayerBoard {
             cleared_viruses += virus_killed;
             score += removed * 10;
 
-            // Deduplicate colors and add to attack queue
-            std::sort(colors_cleared.begin(), colors_cleared.end());
-            colors_cleared.erase(std::unique(colors_cleared.begin(), colors_cleared.end()),
-                                  colors_cleared.end());
+            // Add one attack piece per match group (don't deduplicate)
             for (int color : colors_cleared) {
                 attack_queue.push(color);
             }
