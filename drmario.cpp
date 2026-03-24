@@ -285,24 +285,40 @@ struct PlayerBoard {
         return moved;
     }
 
-    // Drop an attack piece from the top, returns true if successful
-    bool add_attack_piece(int color) {
-        int c = std::rand() % COLS;
-        // Find lowest empty cell in this column
-        int target_row = -1;
-        for (int r = 0; r < ROWS; r++) {
-            if (grid[r][c].color == EMPTY) {
-                target_row = r;
-            } else {
-                break;
-            }
+    // Add all attack pieces at once at distinct random columns at row 0
+    // Returns false if we can't place them (board full)
+    bool receive_attacks() {
+        if (attack_queue.empty()) return true;
+
+        int count = attack_queue.size();
+
+        // Get distinct random columns
+        std::vector<int> cols;
+        for (int c = 0; c < COLS; c++) cols.push_back(c);
+        for (int i = COLS - 1; i > 0; i--) {
+            int j = std::rand() % (i + 1);
+            std::swap(cols[i], cols[j]);
         }
 
-        if (target_row == -1) return false; // Column full, can't add
+        // If we have more attacks than columns, we lose
+        if (count > COLS) return false;
 
-        grid[target_row][c].color = color;
-        grid[target_row][c].virus = false;
-        grid[target_row][c].capId = 0; // Orphaned piece
+        // Check if any target column has no room at top
+        for (int i = 0; i < count; i++) {
+            int c = cols[i];
+            if (grid[0][c].color != EMPTY) return false; // Column blocked at top
+        }
+
+        // Place all attack pieces at row 0
+        for (int i = 0; i < count; i++) {
+            int color = attack_queue.front();
+            attack_queue.pop();
+            int c = cols[i];
+
+            grid[0][c].color = color;
+            grid[0][c].virus = false;
+            grid[0][c].capId = 0; // Orphaned piece
+        }
 
         return true;
     }
@@ -739,47 +755,29 @@ int main() {
 
         // ====== PLAYER SENDING ATTACKS ======
         else if (player.phase == Phase::SENDING) {
-            if (!player.attack_queue.empty()) {
+            // Transfer all attacks to bot at once
+            while (!player.attack_queue.empty()) {
                 int color = player.attack_queue.front();
                 player.attack_queue.pop();
                 bot.attack_queue.push(color);
             }
-            if (player.attack_queue.empty()) {
-                if (player.cleared_viruses >= player.total_viruses) {
-                    player.game_won = true;
-                } else {
-                    player.phase = Phase::PLAYING;
-                    new_piece(player);
-                    player_last_drop = Clock::now();
-                }
+            if (player.cleared_viruses >= player.total_viruses) {
+                player.game_won = true;
+            } else {
+                player.phase = Phase::PLAYING;
+                new_piece(player);
+                player_last_drop = Clock::now();
             }
         }
 
         // ====== PLAYER RECEIVING (processing attacks) ======
         else if (player.phase == Phase::RECEIVING) {
-            if (std::chrono::duration_cast<std::chrono::milliseconds>(
-                    now - player_last_gravity).count() >= 250) {
-                player_last_gravity = now;
-
-                if (!player.attack_queue.empty()) {
-                    int color = player.attack_queue.front();
-                    player.attack_queue.pop();
-                    if (!player.add_attack_piece(color)) {
-                        player.game_over = true;
-                    }
-                }
-
-                if (player.attack_queue.empty()) {
-                    // After adding attacks, check for matches
-                    if (player.find_and_remove_matches() > 0) {
-                        player.phase = Phase::GRAVITY;
-                        player_last_gravity = Clock::now();
-                    } else {
-                        player.phase = Phase::PLAYING;
-                        new_piece(player);
-                        player_last_drop = Clock::now();
-                    }
-                }
+            // Place all attack pieces at top, then let gravity handle falling
+            if (!player.receive_attacks()) {
+                player.game_over = true;
+            } else {
+                player.phase = Phase::GRAVITY;
+                player_last_gravity = Clock::now();
             }
         }
 
@@ -847,46 +845,29 @@ int main() {
 
         // ====== BOT SENDING ATTACKS ======
         else if (bot.phase == Phase::SENDING) {
-            if (!bot.attack_queue.empty()) {
+            // Transfer all attacks to player at once
+            while (!bot.attack_queue.empty()) {
                 int color = bot.attack_queue.front();
                 bot.attack_queue.pop();
                 player.attack_queue.push(color);
             }
-            if (bot.attack_queue.empty()) {
-                if (bot.cleared_viruses >= bot.total_viruses) {
-                    bot.game_won = true;
-                } else {
-                    bot.phase = Phase::PLAYING;
-                    new_piece(bot);
-                    bot_last_drop = Clock::now();
-                }
+            if (bot.cleared_viruses >= bot.total_viruses) {
+                bot.game_won = true;
+            } else {
+                bot.phase = Phase::PLAYING;
+                new_piece(bot);
+                bot_last_drop = Clock::now();
             }
         }
 
         // ====== BOT RECEIVING ======
         else if (bot.phase == Phase::RECEIVING) {
-            if (std::chrono::duration_cast<std::chrono::milliseconds>(
-                    now - bot_last_gravity).count() >= 250) {
-                bot_last_gravity = now;
-
-                if (!bot.attack_queue.empty()) {
-                    int color = bot.attack_queue.front();
-                    bot.attack_queue.pop();
-                    if (!bot.add_attack_piece(color)) {
-                        bot.game_over = true;
-                    }
-                }
-
-                if (bot.attack_queue.empty()) {
-                    if (bot.find_and_remove_matches() > 0) {
-                        bot.phase = Phase::GRAVITY;
-                        bot_last_gravity = Clock::now();
-                    } else {
-                        bot.phase = Phase::PLAYING;
-                        new_piece(bot);
-                        bot_last_drop = Clock::now();
-                    }
-                }
+            // Place all attack pieces at top, then let gravity handle falling
+            if (!bot.receive_attacks()) {
+                bot.game_over = true;
+            } else {
+                bot.phase = Phase::GRAVITY;
+                bot_last_gravity = Clock::now();
             }
         }
 
