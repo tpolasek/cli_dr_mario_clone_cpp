@@ -111,7 +111,7 @@ bool process_phases(PlayerBoard& board, std::queue<int>& my_attacks, std::queue<
         if (is_player) drain_input();
 
         // Check for matches first
-        if (board.find_and_remove_matches(opponent_attacks) > 0) {
+        if (board.find_and_remove_matches() > 0) {
             board.phase = Phase::GRAVITY;
             last_gravity = Clock::now();
             return false;
@@ -143,7 +143,10 @@ bool process_phases(PlayerBoard& board, std::queue<int>& my_attacks, std::queue<
         if (board.gravity_step()) return false;
 
         // Gravity settled, check for new matches
-        if (board.find_and_remove_matches(opponent_attacks) > 0) return false;
+        if (board.find_and_remove_matches() > 0) return false;
+
+        // No more cascades — flush accumulated colors if 2+ cleared
+        board.flush_cascade(opponent_attacks);
 
         if (board.cleared_viruses >= board.total_viruses) {
             board.game_won = true;

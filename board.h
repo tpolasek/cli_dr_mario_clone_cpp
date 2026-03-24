@@ -85,6 +85,7 @@ struct PlayerBoard {
     int total_viruses = 0;
     int cleared_viruses = 0;
     int next_cap_id = 1;
+    std::vector<int> cascade_colors;
     Phase phase = Phase::PLAYING;
     bool game_over = false;
     bool game_won = false;
@@ -117,7 +118,7 @@ struct PlayerBoard {
         set_cell(c.r2(), c.c2(), c.h2);
     }
 
-    int find_and_remove_matches(std::queue<int>& opponent_attacks) {
+    int find_and_remove_matches() {
         std::vector<std::vector<bool>> kill(ROWS, std::vector<bool>(COLS, false));
         std::vector<int> colors_cleared;
 
@@ -167,9 +168,17 @@ struct PlayerBoard {
             cleared_viruses += virus_killed;
             score += removed * 10;
             for (int color : colors_cleared)
-                opponent_attacks.push(color);
+                cascade_colors.push_back(color);
         }
         return removed;
+    }
+
+    void flush_cascade(std::queue<int>& opponent_attacks) {
+        if (cascade_colors.size() >= 2) {
+            for (int color : cascade_colors)
+                opponent_attacks.push(color);
+        }
+        cascade_colors.clear();
     }
 
     bool is_partner(int r, int c, int dr, int dc, int capId) const {
