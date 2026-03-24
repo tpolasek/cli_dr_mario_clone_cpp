@@ -105,9 +105,6 @@ struct PlayerBoard {
     bool game_over = false;
     bool game_won = false;
 
-    // Queue of attack pieces to add
-    std::queue<int> attack_queue;
-
     void clear_grid() {
         for (auto& row : grid)
             for (auto& p : row) { p.color = EMPTY; p.virus = false; p.capId = 0; }
@@ -136,7 +133,9 @@ struct PlayerBoard {
         set_cell(c.r2(), c.c2(), c.h2);
     }
 
-    int find_and_remove_matches() {
+    // Finds matches, removes them, and sends attack colors directly to opponent.
+    // Returns number of cells removed.
+    int find_and_remove_matches(std::queue<int>& opponent_attacks) {
         std::vector<std::vector<bool>> kill(ROWS, std::vector<bool>(COLS, false));
         std::vector<int> colors_cleared;
 
@@ -186,7 +185,7 @@ struct PlayerBoard {
             cleared_viruses += virus_killed;
             score += removed * 10;
             for (int color : colors_cleared)
-                attack_queue.push(color);
+                opponent_attacks.push(color);
         }
         return removed;
     }
@@ -268,10 +267,11 @@ struct PlayerBoard {
         return moved;
     }
 
-    bool receive_attacks() {
-        if (attack_queue.empty()) return true;
+    // Applies queued attacks to the top row. Returns false if no room (game over).
+    bool receive_attacks(std::queue<int>& attacks) {
+        if (attacks.empty()) return true;
 
-        int count = attack_queue.size();
+        int count = attacks.size();
         if (count > COLS) return false;
 
         // Get distinct random columns
@@ -289,10 +289,10 @@ struct PlayerBoard {
         // Place attack pieces
         for (int i = 0; i < count; i++) {
             int c = cols[i];
-            grid[0][c].color = attack_queue.front();
+            grid[0][c].color = attacks.front();
             grid[0][c].virus = false;
             grid[0][c].capId = 0;
-            attack_queue.pop();
+            attacks.pop();
         }
         return true;
     }
@@ -302,6 +302,8 @@ struct PlayerBoard {
 
 static PlayerBoard player;
 static PlayerBoard bot;
+static std::queue<int> player_attacks; // attacks TO player (from bot)
+static std::queue<int> bot_attacks;    // attacks TO bot (from player)
 static int drop_speed = 280;
 static int anim_frame = 0;
 static pid_t music_pid = 0;
@@ -348,7 +350,6 @@ void init_board(PlayerBoard& board, int virus_count) {
     board.game_over = false;
     board.game_won = false;
     board.phase = Phase::PLAYING;
-    while (!board.attack_queue.empty()) board.attack_queue.pop();
     place_viruses(board, virus_count);
     spawn(board.nxt);
     new_piece(board);
@@ -452,7 +453,7 @@ bool process_drop(PlayerBoard& board, TimePoint& last_drop) {
 }
 
 // Handle gravity phase, returns true if still processing
-bool process_gravity(PlayerBoard& board, PlayerBoard& opponent, TimePoint& last_gravity, TimePoint& last_drop) {
+bool process_gravity(PlayerBoard& board, std::queue<int>& opponent_attacks, TimePoint& last_gravity, TimePoint& last_drop) {
     auto now = Clock::now();
     if (std::chrono::duration_cast<std::chrono::milliseconds>(now - last_gravity).count() < 250)
         return true;
@@ -460,14 +461,8 @@ bool process_gravity(PlayerBoard& board, PlayerBoard& opponent, TimePoint& last_
     last_gravity = now;
     if (board.gravity_step()) return true;
 
-    // Gravity settled, check for new matches
-    if (board.find_and_remove_matches() > 0) return true;
-
-    // No more matches — send attacks during GRAVITY phase
-    while (!board.attack_queue.empty()) {
-        opponent.attack_queue.push(board.attack_queue.front());
-        board.attack_queue.pop();
-    }
+    // Gravity settled, check for new matches (attacks go directly to opponent)
+    if (board.find_and_remove_matches(opponent_attacks) > 0) return true;
 
     if (board.cleared_viruses >= board.total_viruses) {
         board.game_won = true;
@@ -501,7 +496,7 @@ const char* dark_ansi(int c) {
     }
 }
 
-void render_board(const PlayerBoard& board, const char* label, int x_offset, bool show_controls) {
+void render_board(const PlayerBoard& board, const char* label, int x_offset, bool show_controls, int attack_count) {
     struct CellView { std::string txt; };
     std::vector<std::vector<CellView>> buf(ROWS, std::vector<CellView>(COLS));
 
@@ -549,7 +544,7 @@ void render_board(const PlayerBoard& board, const char* label, int x_offset, boo
         if (r == 4)  std::cout << " \033[90mNext:\033[0m "
                                << clr_ansi(board.nxt.h1) << "\u2588\u2588"
                                << clr_ansi(board.nxt.h2) << "\u2588\u2588\033[0m";
-        if (r == 7)  std::cout << " \033[90mAttack:\033[0m " << board.attack_queue.size();
+        if (r == 7)  std::cout << " \033[90mAttack:\033[0m " << attack_count;
 
         if (show_controls) {
             if (r == 9)  std::cout << " \033[90mA/D  Move\033[0m";
@@ -576,8 +571,8 @@ void render() {
     std::cout << "\033[2J\033[H";
     std::cout << "\033[97;1m                    DR. MARIO — VS BOT\033[0m\n\n";
 
-    render_board(player, "PLAYER", 2, true);
-    render_board(bot, "  BOT", 38, false);
+    render_board(player, "PLAYER", 2, true, player_attacks.size());
+    render_board(bot, "  BOT", 38, false, bot_attacks.size());
 
     int status_row = 6 + ROWS + 2;
     std::cout << "\033[" << status_row << ";1H" << status_text();
@@ -667,15 +662,13 @@ int main() {
         switch (player.phase) {
         case Phase::PLAYING:
             if (process_drop(player, player_last_drop)) {
-                if (player.find_and_remove_matches() > 0) {
-                    // Matches found — enter GRAVITY to settle pieces
+                if (player.find_and_remove_matches(bot_attacks) > 0) {
                     player.phase = Phase::GRAVITY;
                     player_last_gravity = Clock::now();
                 } else if (player.cleared_viruses >= player.total_viruses) {
                     player.game_won = true;
-                } else if (!player.attack_queue.empty()) {
-                    // Apply pending attacks from opponent
-                    if (!player.receive_attacks()) {
+                } else if (!player_attacks.empty()) {
+                    if (!player.receive_attacks(player_attacks)) {
                         player.game_over = true;
                         break;
                     }
@@ -688,7 +681,7 @@ int main() {
             break;
 
         case Phase::GRAVITY:
-            process_gravity(player, bot, player_last_gravity, player_last_drop);
+            process_gravity(player, bot_attacks, player_last_gravity, player_last_drop);
             break;
         }
 
@@ -703,15 +696,13 @@ int main() {
         switch (bot.phase) {
         case Phase::PLAYING:
             if (process_drop(bot, bot_last_drop)) {
-                if (bot.find_and_remove_matches() > 0) {
-                    // Matches found — enter GRAVITY to settle pieces
+                if (bot.find_and_remove_matches(player_attacks) > 0) {
                     bot.phase = Phase::GRAVITY;
                     bot_last_gravity = Clock::now();
                 } else if (bot.cleared_viruses >= bot.total_viruses) {
                     bot.game_won = true;
-                } else if (!bot.attack_queue.empty()) {
-                    // Apply pending attacks from opponent
-                    if (!bot.receive_attacks()) {
+                } else if (!bot_attacks.empty()) {
+                    if (!bot.receive_attacks(bot_attacks)) {
                         bot.game_over = true;
                         break;
                     }
@@ -724,7 +715,7 @@ int main() {
             break;
 
         case Phase::GRAVITY:
-            process_gravity(bot, player, bot_last_gravity, bot_last_drop);
+            process_gravity(bot, player_attacks, bot_last_gravity, bot_last_drop);
             break;
         }
 
