@@ -89,6 +89,12 @@ bool process_phases(PlayerBoard& board, std::queue<int>& my_attacks, std::queue<
     switch (board.phase) {
     case Phase::PLAYING: {
         auto now = Clock::now();
+        // Check win
+        if (board.cleared_viruses >= board.total_viruses) {
+            board.game_won = true;
+            return true;
+        }
+
         if (std::chrono::duration_cast<std::chrono::milliseconds>(now - last_drop).count() < drop_speed)
             return false;
 
@@ -111,15 +117,10 @@ bool process_phases(PlayerBoard& board, std::queue<int>& my_attacks, std::queue<
             return false;
         }
 
-        // Check win
-        if (board.cleared_viruses >= board.total_viruses) {
-            board.game_won = true;
-            return true;
-        }
-
         // Receive attacks if queued
         if (!my_attacks.empty()) {
             if (!board.receive_attacks(my_attacks)) {
+                // cant place attack, you lose.
                 board.game_over = true;
                 return true;
             }
@@ -243,7 +244,6 @@ int main() {
     }
 
     // ---- init ----
-    game_over = false;
     player.init(nv);
     bot.init(nv);
 
@@ -254,12 +254,11 @@ int main() {
     TimePoint bot_last_move = Clock::now();
 
     // ---- game loop ----
-    while (!game_over && !player.game_over && !bot.game_over) {
+    while (!(player.game_over || player.game_won || bot.game_won || bot.game_over)) {
         auto now = Clock::now();
 
         // ====== PLAYER INPUT ======
         handle_player_input();
-        if (game_over) break;
 
         // ====== PLAYER PHASE PROCESSING ======
         process_phases(player, player_attacks, bot_attacks,
@@ -275,19 +274,17 @@ int main() {
         // ====== BOT PHASE PROCESSING ======
         process_phases(bot, bot_attacks, player_attacks,
                        bot_last_drop, bot_last_gravity, false);
-
         render();
         std::this_thread::sleep_for(std::chrono::milliseconds(12));
     }
 
-    render();
-
     // stop music
     if (music_pid > 0) kill(music_pid, SIGTERM);
 
-    // wait for any key to exit
-    while (poll_key() == 0)
+    render();
+    std::cout << "\nPress 'q' to exit...\n";
+    while (poll_key() != 'q') {
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
-
+    }
     return 0;
 }
