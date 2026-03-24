@@ -8,12 +8,14 @@
 struct SimBoard {
     int color[ROWS][COLS];  // EMPTY/RED/YELLOW/BLUE
     bool virus[ROWS][COLS];
+    int capId[ROWS][COLS];  // 0=virus/empty, >0=capsule id
 
     void load(const PlayerBoard& b) {
         for (int r = 0; r < ROWS; r++)
             for (int c = 0; c < COLS; c++) {
                 color[r][c] = b.grid[r][c].color;
                 virus[r][c] = b.grid[r][c].virus;
+                capId[r][c] = b.grid[r][c].capId;
             }
     }
 
@@ -26,13 +28,23 @@ struct SimBoard {
         return cell_free(r1, c1) && cell_free(r2, c2);
     }
 
-    // Stamp the capsule onto the board, return row where it landed
-    int stamp(int r1, int c1, int r2, int c2, int h1, int h2) {
+    // Stamp the capsule onto the board
+    void stamp(int r1, int c1, int r2, int c2, int h1, int h2, int id) {
         color[r1][c1] = h1;
-        color[r2][c2] = h2;
         virus[r1][c1] = false;
+        capId[r1][c1] = id;
+        color[r2][c2] = h2;
         virus[r2][c2] = false;
-        return std::max(r1, r2);
+        capId[r2][c2] = id;
+    }
+
+    // Check if two cells are capsule partners (same capId, adjacent)
+    bool is_partner(int r, int c, int dr, int dc, int id) const {
+        int nr = r + dr, nc = c + dc;
+        return nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS &&
+               color[nr][nc] != EMPTY &&
+               !virus[nr][nc] &&
+               capId[nr][nc] == id;
     }
 
     // Find and remove matches, return count of viruses cleared
@@ -46,11 +58,11 @@ struct SimBoard {
             for (int i = 0; i < outer; i++) {
                 int run = 1;
                 for (int j = 1; j <= inner; j++) {
-                    int r1h = horizontal ? i : j - 1, c1h = horizontal ? j - 1 : i;
-                    int r2h = horizontal ? i : j,     c2h = horizontal ? j : i;
+                    int r1 = horizontal ? i : j - 1, c1 = horizontal ? j - 1 : i;
+                    int r2 = horizontal ? i : j,     c2 = horizontal ? j : i;
                     bool same = (j < inner &&
-                                 color[r2h][c2h] != EMPTY &&
-                                 color[r2h][c2h] == color[r1h][c1h]);
+                                 color[r2][c2] != EMPTY &&
+                                 color[r2][c2] == color[r1][c1]);
                     if (same) {
                         run++;
                     } else {
@@ -70,20 +82,21 @@ struct SimBoard {
         check_runs(true);
         check_runs(false);
 
-        int virus_killed = 0, removed = 0;
+        int virus_killed = 0;
         for (int r = 0; r < ROWS; r++)
             for (int c = 0; c < COLS; c++)
                 if (kill[r][c]) {
                     if (virus[r][c]) virus_killed++;
                     color[r][c] = EMPTY;
                     virus[r][c] = false;
-                    removed++;
+                    capId[r][c] = 0;
                 }
 
         return virus_killed;
     }
 
     // Apply gravity until settled. Returns true if anything moved.
+    // Uses capId to correctly identify capsule pairs (not color).
     bool gravity_step() {
         bool moved = false;
         bool done[ROWS][COLS];
@@ -94,82 +107,71 @@ struct SimBoard {
                 if (color[r][c] == EMPTY || virus[r][c] || done[r][c])
                     continue;
 
-                // Check if there's a piece directly above (same color, adjacent)
-                // This handles vertical capsule halves
-                if (r > 0 && color[r - 1][c] != EMPTY && !virus[r - 1][c] &&
-                    color[r - 1][c] == color[r][c]) {
-                    // Check if there's a horizontal partner
-                    if (c > 0 && color[r][c - 1] == color[r][c] && !done[r][c - 1]) {
-                        // horizontal pair at row r
-                        if (r + 1 < ROWS && color[r + 1][c] == EMPTY && color[r + 1][c - 1] == EMPTY) {
-                            color[r + 1][c] = color[r][c];
-                            color[r + 1][c - 1] = color[r][c - 1];
-                            color[r][c] = EMPTY;
-                            color[r][c - 1] = EMPTY;
-                            done[r + 1][c] = true;
-                            done[r + 1][c - 1] = true;
-                            moved = true;
-                        }
-                    } else if (c + 1 < COLS && color[r][c + 1] == color[r][c] && !done[r][c + 1]) {
-                        // horizontal pair at row r
-                        if (r + 1 < ROWS && color[r + 1][c] == EMPTY && color[r + 1][c + 1] == EMPTY) {
-                            color[r + 1][c] = color[r][c];
-                            color[r + 1][c + 1] = color[r][c + 1];
-                            color[r][c] = EMPTY;
-                            color[r][c + 1] = EMPTY;
-                            done[r + 1][c] = true;
-                            done[r + 1][c + 1] = true;
-                            moved = true;
-                        }
-                    } else {
-                        // vertical pair, both fall together
-                        if (r + 1 < ROWS && color[r + 1][c] == EMPTY) {
-                            color[r + 1][c] = color[r][c];
-                            color[r][c] = color[r - 1][c];
-                            color[r - 1][c] = EMPTY;
-                            done[r + 1][c] = true;
-                            done[r][c] = true;
-                            moved = true;
-                        }
-                    }
-                    continue;
-                }
+                int id = capId[r][c];
 
-                // Check horizontal partner on same row
-                if (c > 0 && color[r][c - 1] != EMPTY && !virus[r][c - 1] && color[r][c - 1] == color[r][c]) {
-                    if (done[r][c] || done[r][c - 1]) continue;
-                    if (r + 1 < ROWS && color[r + 1][c] == EMPTY && color[r + 1][c - 1] == EMPTY) {
+                // Check if partner is directly above (vertical pair)
+                if (is_partner(r, c, -1, 0, id)) {
+                    // Vertical pair falls together
+                    if (r + 1 < ROWS && color[r + 1][c] == EMPTY) {
                         color[r + 1][c] = color[r][c];
-                        color[r + 1][c - 1] = color[r][c - 1];
-                        color[r][c] = EMPTY;
-                        color[r][c - 1] = EMPTY;
+                        virus[r + 1][c] = virus[r][c];
+                        capId[r + 1][c] = id;
+                        color[r][c] = color[r - 1][c];
+                        virus[r][c] = virus[r - 1][c];
+                        capId[r][c] = id;
+                        color[r - 1][c] = EMPTY;
+                        virus[r - 1][c] = false;
+                        capId[r - 1][c] = 0;
                         done[r + 1][c] = true;
-                        done[r + 1][c - 1] = true;
+                        done[r][c] = true;
                         moved = true;
                     }
                     continue;
                 }
 
-                if (c + 1 < COLS && color[r][c + 1] != EMPTY && !virus[r][c + 1] && color[r][c + 1] == color[r][c]) {
-                    if (done[r][c] || done[r][c + 1]) continue;
-                    if (r + 1 < ROWS && color[r + 1][c] == EMPTY && color[r + 1][c + 1] == EMPTY) {
+                // Check if partner is below (we're top of vertical pair, skip)
+                if (is_partner(r, c, 1, 0, id))
+                    continue;
+
+                // Check horizontal partners
+                int dc = 0;
+                if (is_partner(r, c, 0, -1, id)) dc = -1;
+                else if (is_partner(r, c, 0, 1, id)) dc = 1;
+
+                if (dc != 0) {
+                    int c2 = c + dc;
+                    if (done[r][c] || done[r][c2]) continue;
+                    if (r + 1 < ROWS &&
+                        color[r + 1][c] == EMPTY &&
+                        color[r + 1][c2] == EMPTY) {
                         color[r + 1][c] = color[r][c];
-                        color[r + 1][c + 1] = color[r][c + 1];
+                        virus[r + 1][c] = virus[r][c];
+                        capId[r + 1][c] = id;
+                        color[r + 1][c2] = color[r][c2];
+                        virus[r + 1][c2] = virus[r][c2];
+                        capId[r + 1][c2] = id;
                         color[r][c] = EMPTY;
-                        color[r][c + 1] = EMPTY;
+                        virus[r][c] = false;
+                        capId[r][c] = 0;
+                        color[r][c2] = EMPTY;
+                        virus[r][c2] = false;
+                        capId[r][c2] = 0;
                         done[r + 1][c] = true;
-                        done[r + 1][c + 1] = true;
+                        done[r + 1][c2] = true;
                         moved = true;
                     }
-                    continue;
-                }
-
-                // Single cell or top of vertical pair
-                if (r + 1 < ROWS && color[r + 1][c] == EMPTY) {
-                    color[r + 1][c] = color[r][c];
-                    color[r][c] = EMPTY;
-                    done[r + 1][c] = true;
-                    moved = true;
+                } else {
+                    // Single cell (orphan from broken match)
+                    if (r + 1 < ROWS && color[r + 1][c] == EMPTY) {
+                        color[r + 1][c] = color[r][c];
+                        virus[r + 1][c] = virus[r][c];
+                        capId[r + 1][c] = capId[r][c];
+                        color[r][c] = EMPTY;
+                        virus[r][c] = false;
+                        capId[r][c] = 0;
+                        done[r + 1][c] = true;
+                        moved = true;
+                    }
                 }
             }
         }
@@ -180,10 +182,11 @@ struct SimBoard {
     // Returns total viruses cleared across all cascades
     int simulate_cascade() {
         int total_virus_cleared = 0;
-        int vc = find_and_remove_matches();
-        while (vc > 0 || gravity_step()) {
+        while (true) {
+            int vc = find_and_remove_matches();
             total_virus_cleared += vc;
-            vc = find_and_remove_matches();
+            if (vc == 0 && !gravity_step())
+                break;
         }
         return total_virus_cleared;
     }
@@ -192,10 +195,9 @@ struct SimBoard {
 // ====================== EVALUATION ======================
 
 // Score a board position. Higher = better.
-// Strictly optimizes for virus elimination.
-static int evaluate_board(const SimBoard& sb, int viruses_cleared, int total_viruses) {
+static int evaluate_board(const SimBoard& sb, int viruses_cleared, int remaining_viruses) {
     // Win is always best
-    if (viruses_cleared >= total_viruses)
+    if (viruses_cleared >= remaining_viruses)
         return 100000000;
 
     int score = 0;
@@ -203,7 +205,7 @@ static int evaluate_board(const SimBoard& sb, int viruses_cleared, int total_vir
     // Primary: viruses cleared this move (including cascades)
     score += viruses_cleared * 1000000;
 
-    // Count remaining viruses and how close each is to being cleared
+    // Analyze remaining viruses
     int max_height = 0;
     int virus_proximity_score = 0;
     int num_viruses_near_top = 0;
@@ -214,36 +216,32 @@ static int evaluate_board(const SimBoard& sb, int viruses_cleared, int total_vir
                 max_height = r;
 
             if (sb.virus[r][c]) {
-                // Track viruses dangerously near the top
-                if (r <= 3) num_viruses_near_top++;
+                // Track viruses dangerously near the top (overflow = game over)
+                if (r <= 2) num_viruses_near_top++;
 
-                // How many same-color neighbors does this virus have?
-                // (Only count non-virus pieces adjacent to it)
-                int horiz_count = 0;
-                int vert_count = 0;
-
-                // Left: count contiguous same-color cells
+                // Count same-color neighbors in same row (horizontal run potential)
+                int horiz_count = 1;  // count self
                 for (int dc = -1; c + dc >= 0; dc--) {
                     if (sb.color[r][c + dc] == sb.color[r][c])
                         horiz_count++;
                     else
                         break;
                 }
-                // Right
                 for (int dc = 1; c + dc < COLS; dc++) {
                     if (sb.color[r][c + dc] == sb.color[r][c])
                         horiz_count++;
                     else
                         break;
                 }
-                // Up
+
+                // Count same-color neighbors in same column (vertical run potential)
+                int vert_count = 1;  // count self
                 for (int dr = -1; r + dr >= 0; dr--) {
                     if (sb.color[r + dr][c] == sb.color[r][c])
                         vert_count++;
                     else
                         break;
                 }
-                // Down
                 for (int dr = 1; r + dr < ROWS; dr++) {
                     if (sb.color[r + dr][c] == sb.color[r][c])
                         vert_count++;
@@ -251,15 +249,13 @@ static int evaluate_board(const SimBoard& sb, int viruses_cleared, int total_vir
                         break;
                 }
 
-                // Viruses closer to being cleared get more points
-                // 3 neighbors = needs 1 more to clear (4 total)
-                // 2 neighbors = needs 2 more
-                // 1 neighbor  = needs 3 more
-                if (horiz_count >= 3 || vert_count >= 3)
-                    virus_proximity_score += 5000;  // almost there!
-                else if (horiz_count >= 2 || vert_count >= 2)
+                // Best run determines proximity to clearing
+                int best_run = std::max(horiz_count, vert_count);
+                if (best_run >= 4)
+                    virus_proximity_score += 5000;  // one more piece clears it
+                else if (best_run >= 3)
                     virus_proximity_score += 1000;
-                else if (horiz_count >= 1 || vert_count >= 1)
+                else if (best_run >= 2)
                     virus_proximity_score += 200;
             }
         }
@@ -267,10 +263,10 @@ static int evaluate_board(const SimBoard& sb, int viruses_cleared, int total_vir
 
     score += virus_proximity_score;
 
-    // Heavy penalty for viruses near overflow — means game loss soon
+    // Heavy penalty for viruses near overflow
     score -= num_viruses_near_top * 50000;
 
-    // Moderate penalty for high board (still matters for survival)
+    // Moderate penalty for high board
     score -= max_height * max_height * 5;
 
     return score;
@@ -282,7 +278,7 @@ struct Placement {
     int col;
     int orient;      // 0=right 1=up 2=left 3=down
     int score;
-    int drop_row;    // row where piece lands (for movement)
+    int drop_row;
 };
 
 // Get the two cell positions for a capsule at (r, col, orient)
@@ -298,15 +294,14 @@ static void capsule_cells(int r, int col, int orient, int h1, int h2,
 static int simulate_drop(const SimBoard& sb, int col, int orient, int h1, int h2) {
     int r1, c1, r2, c2;
 
-    // Start from row 0 or row 1 depending on orientation
+    // Start from row 0 or row 1 depending on orientation (up needs row >= 1)
     int start_r = (orient & 1) ? 1 : 0;
 
     for (int r = start_r; r < ROWS + 2; r++) {
         capsule_cells(r, col, orient, h1, h2, r1, c1, r2, c2);
         if (!sb.fits(r1, c1, r2, c2)) {
-            // Go back one row
             r--;
-            if (r < start_r) return -1; // Can't even fit at top
+            if (r < start_r) return -1;
             return r;
         }
     }
@@ -323,8 +318,8 @@ void bot_ai_move(PlayerBoard& board, BotState& state) {
         // Check if we've reached the target
         if (board.cap.c == state.target_col && board.cap.orient == state.target_orient) {
             state.moving_to_target = false;
-            // Press down to speed up the drop
-            state.down_tick = 0;  // reset counter for new piece
+            state.down_tick = 0;
+            // Speed up drop
             Capsule t = board.cap;
             t.r++;
             if (board.fits(t)) board.cap = t;
@@ -332,16 +327,17 @@ void bot_ai_move(PlayerBoard& board, BotState& state) {
         }
         // Continue moving toward target (see movement code below)
     } else {
-        // Find the best placement
+        // Find the best placement by trying all columns and orientations
         SimBoard sb;
         sb.load(board);
 
         int h1 = board.cap.h1;
         int h2 = board.cap.h2;
+        int remaining_viruses = board.total_viruses - board.cleared_viruses;
 
         Placement best = { -1, -1, INT_MIN, 0 };
 
-        // Try all columns and orientations
+        // Try all 4 orientations (not just 2!)
         for (int orient = 0; orient < 4; orient++) {
             for (int col = 0; col < COLS; col++) {
                 int drop_r = simulate_drop(sb, col, orient, h1, h2);
@@ -351,14 +347,16 @@ void bot_ai_move(PlayerBoard& board, BotState& state) {
                 int r1, c1, r2, c2;
                 capsule_cells(drop_r, col, orient, h1, h2, r1, c1, r2, c2);
 
+                // Skip dead positions (piece lands at row 0 = immediate game over)
+                if (r1 <= 0 || r2 <= 0) continue;
+
                 // Simulate placement
                 SimBoard sim = sb;
-                sim.stamp(r1, c1, r2, c2, h1, h2);
+                sim.stamp(r1, c1, r2, c2, h1, h2, board.next_cap_id);
 
                 // Simulate cascades
                 int vc = sim.simulate_cascade();
-                int total_viruses = board.total_viruses - board.cleared_viruses;
-                int sc = evaluate_board(sim, vc, total_viruses);
+                int sc = evaluate_board(sim, vc, remaining_viruses);
 
                 if (sc > best.score) {
                     best.col = col;
@@ -369,14 +367,10 @@ void bot_ai_move(PlayerBoard& board, BotState& state) {
             }
         }
 
-        // Also try: swap h1 and h2 (since rotate swaps them in horizontal mode)
-        // Actually, we should also evaluate swapped colors for horizontal orientations
-        // But the rotation system handles this, so we're covered.
-
         if (best.col < 0) {
-            // No valid placement found, just do something
-            state.target_col = COLS / 2;
-            state.target_orient = 0;
+            // No valid placement found (board is nearly full), try to survive
+            state.target_col = board.cap.c;
+            state.target_orient = board.cap.orient;
         } else {
             state.target_col = best.col;
             state.target_orient = best.orient;
@@ -385,11 +379,14 @@ void bot_ai_move(PlayerBoard& board, BotState& state) {
     }
 
     // Movement toward target
-    // Priority: rotate first if needed, then move horizontally
+    // Priority: rotate to reach target orientation, then move horizontally
 
-    // If we need to rotate (and we're in a horizontal orientation), try to rotate
     if (board.cap.orient != state.target_orient) {
-        // Try wall-kick rotation (like the player can do)
+        // Try rotating to reach target orientation
+        // rotate() cycles: 0->1, 1->0, 2->3, 3->2 (with color swap on horizontal->vertical)
+        // From any orient, we can reach any other via at most 3 rotations with wall kicks
+
+        // Try single rotation first
         Capsule t = board.cap;
         t.rotate();
         if (board.fits(t)) { board.cap = t; return; }
@@ -403,9 +400,11 @@ void bot_ai_move(PlayerBoard& board, BotState& state) {
 
         t = board.cap; t.r--; t.rotate();
         if (board.fits(t)) { board.cap = t; return; }
+
+        // If we can't rotate, we may need to move horizontally first to get space
     }
 
-    // Move horizontally toward target
+    // Move horizontally toward target column
     if (board.cap.c < state.target_col) {
         Capsule t = board.cap; t.c++;
         if (board.fits(t)) { board.cap = t; return; }
@@ -414,19 +413,26 @@ void bot_ai_move(PlayerBoard& board, BotState& state) {
         if (board.fits(t)) { board.cap = t; return; }
     }
 
-    // We're at the right column, maybe need one more rotation check
+    // At target column but wrong orientation - try rotation with wall kicks again
     if (board.cap.orient != state.target_orient) {
         Capsule t = board.cap;
         t.rotate();
         if (board.fits(t)) { board.cap = t; return; }
+
+        t = board.cap; t.c--; t.rotate();
+        if (board.fits(t)) { board.cap = t; return; }
+
+        t = board.cap; t.c++; t.rotate();
+        if (board.fits(t)) { board.cap = t; return; }
+
+        t = board.cap; t.r--; t.rotate();
+        if (board.fits(t)) { board.cap = t; return; }
     }
 
-    // Stuck or at destination
+    // Can't reach target orientation at this column - just drop here
     state.moving_to_target = false;
 
     // Press down to speed up drop based on difficulty
-    // difficulty 1 = press down every 10 ticks (slowest)
-    // difficulty 10 = press down every tick (fastest)
     state.down_tick++;
     int down_interval = 11 - state.difficulty;  // 10, 9, 8, ..., 1
     if (state.down_tick >= down_interval) {
