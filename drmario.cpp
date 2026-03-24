@@ -90,7 +90,7 @@ struct Capsule {
     }
 };
 
-enum class Phase { PLAYING, GRAVITY, RECEIVING };
+enum class Phase { PLAYING, GRAVITY };
 
 // ====================== PLAYER STATE ======================
 
@@ -479,21 +479,7 @@ bool process_gravity(PlayerBoard& board, PlayerBoard& opponent, TimePoint& last_
     return false;
 }
 
-// Process incoming attacks
-bool process_receiving(PlayerBoard& board, TimePoint& last_gravity) {
-    if (!board.receive_attacks()) return false;
-    board.phase = Phase::GRAVITY;
-    last_gravity = Clock::now();
-    return true;
-}
 
-// Check if board should receive attacks
-void check_incoming_attacks(PlayerBoard& board, TimePoint& last_gravity) {
-    if (board.phase == Phase::PLAYING && !board.attack_queue.empty()) {
-        board.phase = Phase::RECEIVING;
-        last_gravity = Clock::now();
-    }
-}
 
 // ====================== RENDERING ======================
 
@@ -582,10 +568,6 @@ const char* status_text() {
     if (bot.game_over)    return "\033[92;1m         YOU WIN! Bot lost!\033[0m";
     if (player.phase == Phase::GRAVITY || bot.phase == Phase::GRAVITY)
         return "\033[96m                      Settling...\033[0m";
-    if (player.phase == Phase::RECEIVING)
-        return "\033[91m                   Receiving attack!\033[0m";
-    if (bot.phase == Phase::RECEIVING)
-        return "\033[92m                    Sending attack!\033[0m";
     return "                      ";
 }
 
@@ -686,10 +668,19 @@ int main() {
         case Phase::PLAYING:
             if (process_drop(player, player_last_drop)) {
                 if (player.find_and_remove_matches() > 0) {
+                    // Matches found — enter GRAVITY to settle pieces
                     player.phase = Phase::GRAVITY;
                     player_last_gravity = Clock::now();
                 } else if (player.cleared_viruses >= player.total_viruses) {
                     player.game_won = true;
+                } else if (!player.attack_queue.empty()) {
+                    // Apply pending attacks from opponent
+                    if (!player.receive_attacks()) {
+                        player.game_over = true;
+                        break;
+                    }
+                    player.phase = Phase::GRAVITY;
+                    player_last_gravity = Clock::now();
                 } else {
                     new_piece(player);
                 }
@@ -698,11 +689,6 @@ int main() {
 
         case Phase::GRAVITY:
             process_gravity(player, bot, player_last_gravity, player_last_drop);
-            break;
-
-        case Phase::RECEIVING:
-            if (!process_receiving(player, player_last_gravity))
-                player.game_over = true;
             break;
         }
 
@@ -718,10 +704,19 @@ int main() {
         case Phase::PLAYING:
             if (process_drop(bot, bot_last_drop)) {
                 if (bot.find_and_remove_matches() > 0) {
+                    // Matches found — enter GRAVITY to settle pieces
                     bot.phase = Phase::GRAVITY;
                     bot_last_gravity = Clock::now();
                 } else if (bot.cleared_viruses >= bot.total_viruses) {
                     bot.game_won = true;
+                } else if (!bot.attack_queue.empty()) {
+                    // Apply pending attacks from opponent
+                    if (!bot.receive_attacks()) {
+                        bot.game_over = true;
+                        break;
+                    }
+                    bot.phase = Phase::GRAVITY;
+                    bot_last_gravity = Clock::now();
                 } else {
                     new_piece(bot);
                 }
@@ -731,16 +726,7 @@ int main() {
         case Phase::GRAVITY:
             process_gravity(bot, player, bot_last_gravity, bot_last_drop);
             break;
-
-        case Phase::RECEIVING:
-            if (!process_receiving(bot, bot_last_gravity))
-                bot.game_over = true;
-            break;
         }
-
-        // ====== CHECK FOR INCOMING ATTACKS ======
-        check_incoming_attacks(player, player_last_gravity);
-        check_incoming_attacks(bot, bot_last_gravity);
 
         render();
         std::this_thread::sleep_for(std::chrono::milliseconds(12));
