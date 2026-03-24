@@ -1,0 +1,241 @@
+#pragma once
+
+#include <array>
+#include <vector>
+#include <queue>
+#include <algorithm>
+#include <cstdlib>
+
+// ====================== CONSTANTS ======================
+
+constexpr int ROWS = 16;
+constexpr int COLS  = 8;
+constexpr int EMPTY = 0;
+constexpr int RED   = 1;
+constexpr int YELLOW = 2;
+constexpr int BLUE  = 3;
+
+// ====================== DATA TYPES ======================
+
+struct Piece {
+    int color; bool virus; int capId;
+};
+
+struct Capsule {
+    int r, c;
+    int h1, h2;
+    int orient; // 0=right 1=up 2=left 3=down
+
+    int r1() const { return r; }
+    int c1() const { return c; }
+    int r2() const {
+        if (orient & 1) return r - 1;
+        return r;
+    }
+    int c2() const {
+        if ((orient & 1) == 0) return c + 1;
+        return c;
+    }
+    void rotate() {
+        if ((orient & 1) == 0) std::swap(h1, h2);
+        orient = (orient + 1) & 3;
+    }
+};
+
+enum class Phase { PLAYING, GRAVITY };
+
+// ====================== PLAYER STATE ======================
+
+struct PlayerBoard {
+    std::array<std::array<Piece, COLS>, ROWS> grid;
+    Capsule cap, nxt;
+    int score = 0;
+    int total_viruses = 0;
+    int cleared_viruses = 0;
+    int next_cap_id = 1;
+    Phase phase = Phase::PLAYING;
+    bool game_over = false;
+    bool game_won = false;
+
+    void clear_grid() {
+        for (auto& row : grid)
+            for (auto& p : row) { p.color = EMPTY; p.virus = false; p.capId = 0; }
+        next_cap_id = 1;
+    }
+
+    bool cell_free(int r, int c) const {
+        if (r < 0 && c >= 0 && c < COLS) return true;
+        return r >= 0 && r < ROWS && c >= 0 && c < COLS && grid[r][c].color == EMPTY;
+    }
+
+    bool fits(const Capsule& c) const {
+        return cell_free(c.r1(), c.c1()) && cell_free(c.r2(), c.c2());
+    }
+
+    void stamp(const Capsule& c) {
+        int id = next_cap_id++;
+        auto set_cell = [&](int r, int col, int color) {
+            if (r >= 0 && r < ROWS && col >= 0 && col < COLS) {
+                grid[r][col].color = color;
+                grid[r][col].virus = false;
+                grid[r][col].capId = id;
+            }
+        };
+        set_cell(c.r1(), c.c1(), c.h1);
+        set_cell(c.r2(), c.c2(), c.h2);
+    }
+
+    int find_and_remove_matches(std::queue<int>& opponent_attacks) {
+        std::vector<std::vector<bool>> kill(ROWS, std::vector<bool>(COLS, false));
+        std::vector<int> colors_cleared;
+
+        auto check_runs = [&](bool horizontal) {
+            int outer = horizontal ? ROWS : COLS;
+            int inner = horizontal ? COLS : ROWS;
+            for (int i = 0; i < outer; i++) {
+                int run = 1;
+                for (int j = 1; j <= inner; j++) {
+                    int r1 = horizontal ? i : j - 1, c1 = horizontal ? j - 1 : i;
+                    int r2 = horizontal ? i : j,     c2 = horizontal ? j : i;
+                    bool same = (j < inner &&
+                                 grid[r2][c2].color != EMPTY &&
+                                 grid[r2][c2].color == grid[r1][c1].color);
+                    if (same) {
+                        run++;
+                    } else {
+                        if (run >= 4) {
+                            colors_cleared.push_back(grid[r1][c1].color);
+                            for (int k = j - run; k < j; k++) {
+                                int kr = horizontal ? i : k;
+                                int kc = horizontal ? k : i;
+                                kill[kr][kc] = true;
+                            }
+                        }
+                        run = 1;
+                    }
+                }
+            }
+        };
+
+        check_runs(true);
+        check_runs(false);
+
+        int removed = 0, virus_killed = 0;
+        for (int r = 0; r < ROWS; r++)
+            for (int c = 0; c < COLS; c++)
+                if (kill[r][c]) {
+                    if (grid[r][c].virus) virus_killed++;
+                    grid[r][c].color = EMPTY;
+                    grid[r][c].virus = false;
+                    grid[r][c].capId = 0;
+                    removed++;
+                }
+
+        if (removed) {
+            cleared_viruses += virus_killed;
+            score += removed * 10;
+            for (int color : colors_cleared)
+                opponent_attacks.push(color);
+        }
+        return removed;
+    }
+
+    bool is_partner(int r, int c, int dr, int dc, int capId) const {
+        int nr = r + dr, nc = c + dc;
+        return nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS &&
+               grid[nr][nc].color != EMPTY &&
+               !grid[nr][nc].virus &&
+               grid[nr][nc].capId == capId;
+    }
+
+    void swap_cells(int r1, int c1, int r2, int c2) {
+        std::swap(grid[r1][c1], grid[r2][c2]);
+    }
+
+    void clear_cell(int r, int c) {
+        grid[r][c] = {EMPTY, false, 0};
+    }
+
+    bool gravity_step() {
+        bool moved = false;
+        std::vector<std::vector<bool>> done(ROWS, std::vector<bool>(COLS, false));
+
+        for (int r = ROWS - 1; r >= 0; r--) {
+            for (int c = 0; c < COLS; c++) {
+                if (grid[r][c].color == EMPTY || grid[r][c].virus || done[r][c])
+                    continue;
+
+                int capId = grid[r][c].capId;
+
+                if (is_partner(r, c, -1, 0, capId)) {
+                    if (r + 1 < ROWS && grid[r + 1][c].color == EMPTY) {
+                        grid[r + 1][c] = grid[r][c];
+                        grid[r][c] = grid[r - 1][c];
+                        clear_cell(r - 1, c);
+                        done[r + 1][c] = true;
+                        done[r][c] = true;
+                        moved = true;
+                    }
+                    continue;
+                }
+
+                if (is_partner(r, c, 1, 0, capId))
+                    continue;
+
+                int dc = 0;
+                if (is_partner(r, c, 0, -1, capId)) dc = -1;
+                else if (is_partner(r, c, 0, 1, capId)) dc = 1;
+
+                if (dc != 0) {
+                    int c2 = c + dc;
+                    if (done[r][c] || done[r][c2]) continue;
+                    if (r + 1 < ROWS &&
+                        grid[r + 1][c].color == EMPTY &&
+                        grid[r + 1][c2].color == EMPTY) {
+                        grid[r + 1][c] = grid[r][c];
+                        grid[r + 1][c2] = grid[r][c2];
+                        clear_cell(r, c);
+                        clear_cell(r, c2);
+                        done[r + 1][c] = true;
+                        done[r + 1][c2] = true;
+                        moved = true;
+                    }
+                } else {
+                    if (r + 1 < ROWS && grid[r + 1][c].color == EMPTY) {
+                        grid[r + 1][c] = grid[r][c];
+                        clear_cell(r, c);
+                        done[r + 1][c] = true;
+                        moved = true;
+                    }
+                }
+            }
+        }
+        return moved;
+    }
+
+    bool receive_attacks(std::queue<int>& attacks) {
+        if (attacks.empty()) return true;
+
+        int count = attacks.size();
+        if (count > COLS) return false;
+
+        std::vector<int> cols(COLS);
+        for (int c = 0; c < COLS; c++) cols[c] = c;
+        for (int i = COLS - 1; i > 0; i--) {
+            int j = std::rand() % (i + 1);
+            std::swap(cols[i], cols[j]);
+        }
+
+        for (int i = 0; i < count; i++)
+            if (grid[0][cols[i]].color != EMPTY) return false;
+
+        for (int i = 0; i < count; i++) {
+            int c = cols[i];
+            grid[0][c].color = attacks.front();
+            grid[0][c].virus = false;
+            grid[0][c].capId = 0;
+            attacks.pop();
+        }
+        return true;
+    }
+};
