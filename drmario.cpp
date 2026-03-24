@@ -90,7 +90,7 @@ struct Capsule {
     }
 };
 
-enum class Phase { PLAYING, GRAVITY, SENDING, RECEIVING };
+enum class Phase { PLAYING, GRAVITY, RECEIVING };
 
 // ====================== PLAYER STATE ======================
 
@@ -452,7 +452,7 @@ bool process_drop(PlayerBoard& board, TimePoint& last_drop) {
 }
 
 // Handle gravity phase, returns true if still processing
-bool process_gravity(PlayerBoard& board, TimePoint& last_gravity, TimePoint& last_drop) {
+bool process_gravity(PlayerBoard& board, PlayerBoard& opponent, TimePoint& last_gravity, TimePoint& last_drop) {
     auto now = Clock::now();
     if (std::chrono::duration_cast<std::chrono::milliseconds>(now - last_gravity).count() < 250)
         return true;
@@ -463,25 +463,12 @@ bool process_gravity(PlayerBoard& board, TimePoint& last_gravity, TimePoint& las
     // Gravity settled, check for new matches
     if (board.find_and_remove_matches() > 0) return true;
 
-    // No more matches, determine next phase
-    if (!board.attack_queue.empty()) {
-        board.phase = Phase::SENDING;
-    } else if (board.cleared_viruses >= board.total_viruses) {
-        board.game_won = true;
-    } else {
-        board.phase = Phase::PLAYING;
-        new_piece(board);
-        last_drop = Clock::now();
-    }
-    return false;
-}
-
-// Transfer attacks to opponent
-void process_sending(PlayerBoard& board, PlayerBoard& opponent, TimePoint& last_drop) {
+    // No more matches — send attacks during GRAVITY phase
     while (!board.attack_queue.empty()) {
         opponent.attack_queue.push(board.attack_queue.front());
         board.attack_queue.pop();
     }
+
     if (board.cleared_viruses >= board.total_viruses) {
         board.game_won = true;
     } else {
@@ -489,6 +476,7 @@ void process_sending(PlayerBoard& board, PlayerBoard& opponent, TimePoint& last_
         new_piece(board);
         last_drop = Clock::now();
     }
+    return false;
 }
 
 // Process incoming attacks
@@ -709,11 +697,7 @@ int main() {
             break;
 
         case Phase::GRAVITY:
-            process_gravity(player, player_last_gravity, player_last_drop);
-            break;
-
-        case Phase::SENDING:
-            process_sending(player, bot, player_last_drop);
+            process_gravity(player, bot, player_last_gravity, player_last_drop);
             break;
 
         case Phase::RECEIVING:
@@ -745,11 +729,7 @@ int main() {
             break;
 
         case Phase::GRAVITY:
-            process_gravity(bot, bot_last_gravity, bot_last_drop);
-            break;
-
-        case Phase::SENDING:
-            process_sending(bot, player, bot_last_drop);
+            process_gravity(bot, player, bot_last_gravity, bot_last_drop);
             break;
 
         case Phase::RECEIVING:
