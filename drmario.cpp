@@ -77,11 +77,11 @@ struct Capsule {
     int r1() const { return r; }
     int c1() const { return c; }
     int r2() const {
-        if (orient == 1 || orient == 3) return r - 1;
+        if (orient & 1) return r - 1;
         return r;
     }
     int c2() const {
-        if (orient == 0 || orient == 2) return c + 1;
+        if ((orient & 1) == 0) return c + 1;
         return c;
     }
     void rotate() {
@@ -125,54 +125,51 @@ struct PlayerBoard {
 
     void stamp(const Capsule& c) {
         int id = next_cap_id++;
-        if (c.r1() >= 0 && c.r1() < ROWS && c.c1() >= 0 && c.c1() < COLS) {
-            grid[c.r1()][c.c1()].color = c.h1;
-            grid[c.r1()][c.c1()].virus = false;
-            grid[c.r1()][c.c1()].capId = id;
-        }
-        if (c.r2() >= 0 && c.r2() < ROWS && c.c2() >= 0 && c.c2() < COLS) {
-            grid[c.r2()][c.c2()].color = c.h2;
-            grid[c.r2()][c.c2()].virus = false;
-            grid[c.r2()][c.c2()].capId = id;
-        }
+        auto set_cell = [&](int r, int col, int color) {
+            if (r >= 0 && r < ROWS && col >= 0 && col < COLS) {
+                grid[r][col].color = color;
+                grid[r][col].virus = false;
+                grid[r][col].capId = id;
+            }
+        };
+        set_cell(c.r1(), c.c1(), c.h1);
+        set_cell(c.r2(), c.c2(), c.h2);
     }
 
     int find_and_remove_matches() {
         std::vector<std::vector<bool>> kill(ROWS, std::vector<bool>(COLS, false));
-
-        // Track colors cleared for attacks
         std::vector<int> colors_cleared;
 
-        for (int r = 0; r < ROWS; r++) {
-            int run = 1;
-            for (int c = 1; c <= COLS; c++) {
-                bool same = (c < COLS && grid[r][c].color != EMPTY &&
-                             grid[r][c].color == grid[r][c - 1].color);
-                if (same) { run++; }
-                else {
-                    if (run >= 4) {
-                        colors_cleared.push_back(grid[r][c - 1].color);
-                        for (int k = c - run; k < c; k++) kill[r][k] = true;
+        auto check_runs = [&](bool horizontal) {
+            int outer = horizontal ? ROWS : COLS;
+            int inner = horizontal ? COLS : ROWS;
+            for (int i = 0; i < outer; i++) {
+                int run = 1;
+                for (int j = 1; j <= inner; j++) {
+                    int r1 = horizontal ? i : j - 1, c1 = horizontal ? j - 1 : i;
+                    int r2 = horizontal ? i : j,     c2 = horizontal ? j : i;
+                    bool same = (j < inner &&
+                                 grid[r2][c2].color != EMPTY &&
+                                 grid[r2][c2].color == grid[r1][c1].color);
+                    if (same) {
+                        run++;
+                    } else {
+                        if (run >= 4) {
+                            colors_cleared.push_back(grid[r1][c1].color);
+                            for (int k = j - run; k < j; k++) {
+                                int kr = horizontal ? i : k;
+                                int kc = horizontal ? k : i;
+                                kill[kr][kc] = true;
+                            }
+                        }
+                        run = 1;
                     }
-                    run = 1;
                 }
             }
-        }
-        for (int c = 0; c < COLS; c++) {
-            int run = 1;
-            for (int r = 1; r <= ROWS; r++) {
-                bool same = (r < ROWS && grid[r][c].color != EMPTY &&
-                             grid[r][c].color == grid[r - 1][c].color);
-                if (same) { run++; }
-                else {
-                    if (run >= 4) {
-                        colors_cleared.push_back(grid[r - 1][c].color);
-                        for (int k = r - run; k < r; k++) kill[k][c] = true;
-                    }
-                    run = 1;
-                }
-            }
-        }
+        };
+
+        check_runs(true);  // horizontal
+        check_runs(false); // vertical
 
         int removed = 0, virus_killed = 0;
         for (int r = 0; r < ROWS; r++)
@@ -188,13 +185,26 @@ struct PlayerBoard {
         if (removed) {
             cleared_viruses += virus_killed;
             score += removed * 10;
-
-            // Add one attack piece per match group (don't deduplicate)
-            for (int color : colors_cleared) {
+            for (int color : colors_cleared)
                 attack_queue.push(color);
-            }
         }
         return removed;
+    }
+
+    bool is_partner(int r, int c, int dr, int dc, int capId) const {
+        int nr = r + dr, nc = c + dc;
+        return nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS &&
+               grid[nr][nc].color != EMPTY &&
+               !grid[nr][nc].virus &&
+               grid[nr][nc].capId == capId;
+    }
+
+    void swap_cells(int r1, int c1, int r2, int c2) {
+        std::swap(grid[r1][c1], grid[r2][c2]);
+    }
+
+    void clear_cell(int r, int c) {
+        grid[r][c] = {EMPTY, false, 0};
     }
 
     bool gravity_step() {
@@ -206,73 +216,51 @@ struct PlayerBoard {
                 if (grid[r][c].color == EMPTY || grid[r][c].virus || done[r][c])
                     continue;
 
-                bool has_vert_partner = false;
-                if (r - 1 >= 0 &&
-                    grid[r - 1][c].color != EMPTY &&
-                    !grid[r - 1][c].virus &&
-                    grid[r][c].capId == grid[r - 1][c].capId) {
-                    has_vert_partner = true;
-                }
+                int capId = grid[r][c].capId;
 
-                if (has_vert_partner) {
+                // Check for vertical partner above
+                if (is_partner(r, c, -1, 0, capId)) {
                     if (r + 1 < ROWS && grid[r + 1][c].color == EMPTY) {
                         grid[r + 1][c] = grid[r][c];
                         grid[r][c] = grid[r - 1][c];
-                        grid[r - 1][c] = {EMPTY, false, 0};
+                        clear_cell(r - 1, c);
                         done[r + 1][c] = true;
                         done[r][c] = true;
                         moved = true;
                     }
-                } else {
-                    bool has_below = false;
+                    continue;
+                }
+
+                // Check if we have a partner below (we're on top)
+                if (is_partner(r, c, 1, 0, capId))
+                    continue;
+
+                // Check for horizontal partner
+                int dc = 0;
+                if (is_partner(r, c, 0, -1, capId)) dc = -1;
+                else if (is_partner(r, c, 0, 1, capId)) dc = 1;
+
+                if (dc != 0) {
+                    int c2 = c + dc;
+                    if (done[r][c] || done[r][c2]) continue;
                     if (r + 1 < ROWS &&
-                        grid[r + 1][c].color != EMPTY &&
-                        !grid[r + 1][c].virus &&
-                        grid[r][c].capId == grid[r + 1][c].capId) {
-                        has_below = true;
+                        grid[r + 1][c].color == EMPTY &&
+                        grid[r + 1][c2].color == EMPTY) {
+                        grid[r + 1][c] = grid[r][c];
+                        grid[r + 1][c2] = grid[r][c2];
+                        clear_cell(r, c);
+                        clear_cell(r, c2);
+                        done[r + 1][c] = true;
+                        done[r + 1][c2] = true;
+                        moved = true;
                     }
-
-                    if (has_below) continue;
-
-                    bool has_horiz_partner = false;
-                    int dc = 0;
-                    if (c - 1 >= 0 &&
-                        grid[r][c - 1].color != EMPTY &&
-                        !grid[r][c - 1].virus &&
-                        grid[r][c].capId == grid[r][c - 1].capId) {
-                        has_horiz_partner = true;
-                        dc = -1;
-                    }
-                    if (c + 1 < COLS &&
-                        grid[r][c + 1].color != EMPTY &&
-                        !grid[r][c + 1].virus &&
-                        grid[r][c].capId == grid[r][c + 1].capId) {
-                        has_horiz_partner = true;
-                        dc = 1;
-                    }
-
-                    if (has_horiz_partner) {
-                        int r1 = r, r2 = r;
-                        int c1 = c, c2 = c + dc;
-                        if (done[r1][c1] || done[r2][c2]) continue;
-                        if (r1 + 1 < ROWS && r2 + 1 < ROWS &&
-                            grid[r1 + 1][c1].color == EMPTY &&
-                            grid[r2 + 1][c2].color == EMPTY) {
-                            grid[r1 + 1][c1] = grid[r1][c1];
-                            grid[r2 + 1][c2] = grid[r2][c2];
-                            grid[r1][c1] = {EMPTY, false, 0};
-                            grid[r2][c2] = {EMPTY, false, 0};
-                            done[r1 + 1][c1] = true;
-                            done[r2 + 1][c2] = true;
-                            moved = true;
-                        }
-                    } else {
-                        if (r + 1 < ROWS && grid[r + 1][c].color == EMPTY) {
-                            grid[r + 1][c] = grid[r][c];
-                            grid[r][c] = {EMPTY, false, 0};
-                            done[r + 1][c] = true;
-                            moved = true;
-                        }
+                } else {
+                    // Single piece or orphaned
+                    if (r + 1 < ROWS && grid[r + 1][c].color == EMPTY) {
+                        grid[r + 1][c] = grid[r][c];
+                        clear_cell(r, c);
+                        done[r + 1][c] = true;
+                        moved = true;
                     }
                 }
             }
@@ -280,41 +268,32 @@ struct PlayerBoard {
         return moved;
     }
 
-    // Add all attack pieces at once at distinct random columns at row 0
-    // Returns false if we can't place them (board full)
     bool receive_attacks() {
         if (attack_queue.empty()) return true;
 
         int count = attack_queue.size();
+        if (count > COLS) return false;
 
         // Get distinct random columns
-        std::vector<int> cols;
-        for (int c = 0; c < COLS; c++) cols.push_back(c);
+        std::vector<int> cols(COLS);
+        for (int c = 0; c < COLS; c++) cols[c] = c;
         for (int i = COLS - 1; i > 0; i--) {
             int j = std::rand() % (i + 1);
             std::swap(cols[i], cols[j]);
         }
 
-        // If we have more attacks than columns, we lose
-        if (count > COLS) return false;
+        // Check if target columns have room
+        for (int i = 0; i < count; i++)
+            if (grid[0][cols[i]].color != EMPTY) return false;
 
-        // Check if any target column has no room at top
+        // Place attack pieces
         for (int i = 0; i < count; i++) {
             int c = cols[i];
-            if (grid[0][c].color != EMPTY) return false; // Column blocked at top
-        }
-
-        // Place all attack pieces at row 0
-        for (int i = 0; i < count; i++) {
-            int color = attack_queue.front();
-            attack_queue.pop();
-            int c = cols[i];
-
-            grid[0][c].color = color;
+            grid[0][c].color = attack_queue.front();
             grid[0][c].virus = false;
-            grid[0][c].capId = 0; // Orphaned piece
+            grid[0][c].capId = 0;
+            attack_queue.pop();
         }
-
         return true;
     }
 };
@@ -323,15 +302,10 @@ struct PlayerBoard {
 
 static PlayerBoard player;
 static PlayerBoard bot;
-static int level = 1;
 static int drop_speed = 280;
 static int anim_frame = 0;
 static pid_t music_pid = 0;
 static bool game_over = false;
-
-// Bot AI state
-static auto last_bot_move = std::chrono::steady_clock::now();
-
 
 // ====================== HELPERS ======================
 
@@ -368,6 +342,18 @@ void new_piece(PlayerBoard& board) {
     if (!board.fits(board.cap)) board.game_over = true;
 }
 
+void init_board(PlayerBoard& board, int virus_count) {
+    board.clear_grid();
+    board.score = 0;
+    board.game_over = false;
+    board.game_won = false;
+    board.phase = Phase::PLAYING;
+    while (!board.attack_queue.empty()) board.attack_queue.pop();
+    place_viruses(board, virus_count);
+    spawn(board.nxt);
+    new_piece(board);
+}
+
 // ====================== PLAYER INPUT ======================
 
 void handle_player_input() {
@@ -386,12 +372,11 @@ void handle_player_input() {
         switch (ch) {
         case 'a': case 'A': t.c--; if (player.fits(t)) player.cap = t; break;
         case 'd': case 'D': t.c++; if (player.fits(t)) player.cap = t; break;
-        case 's': case 'S': {
-            t = player.cap; t.r++;
+        case 's': case 'S':
+            t.r++;
             if (player.fits(t)) player.cap = t;
             break;
-        }
-        case 'w': case 'W': {
+        case 'w': case 'W':
             t.rotate();
             if (player.fits(t)) { player.cap = t; break; }
             t.c--;  if (player.fits(t)) { player.cap = t; break; }
@@ -399,7 +384,6 @@ void handle_player_input() {
             t.c--;
             t.r--;  if (player.fits(t)) { player.cap = t; break; }
             break;
-        }
         }
     }
 }
@@ -413,50 +397,114 @@ void drain_input() {
 void bot_ai_move() {
     if (bot.phase != Phase::PLAYING) return;
 
-    // Random AI: pick a random column and orientation, then drop
     static int target_col = -1;
     static int target_orient = -1;
     static bool moving_to_target = false;
 
     if (!moving_to_target) {
-        // Pick new target
         target_col = std::rand() % (COLS - 1);
         target_orient = std::rand() % 4;
         moving_to_target = true;
     }
 
-    // Move toward target
-    Capsule t = bot.cap;
-
-    // First orient
+    // Rotate toward target orientation
     if (bot.cap.orient != target_orient) {
-        t = bot.cap;
+        Capsule t = bot.cap;
         t.rotate();
-        if (bot.fits(t)) {
-            bot.cap = t;
-            return;
-        }
+        if (bot.fits(t)) { bot.cap = t; return; }
     }
 
-    // Then move column
+    // Move toward target column
     if (bot.cap.c < target_col) {
-        t = bot.cap;
-        t.c++;
-        if (bot.fits(t)) {
-            bot.cap = t;
-            return;
-        }
+        Capsule t = bot.cap; t.c++;
+        if (bot.fits(t)) { bot.cap = t; return; }
     } else if (bot.cap.c > target_col) {
-        t = bot.cap;
-        t.c--;
-        if (bot.fits(t)) {
-            bot.cap = t;
-            return;
-        }
+        Capsule t = bot.cap; t.c--;
+        if (bot.fits(t)) { bot.cap = t; return; }
     }
 
-    // At target, drop faster
     moving_to_target = false;
+}
+
+// ====================== PHASE TRANSITIONS ======================
+
+using Clock = std::chrono::steady_clock;
+using TimePoint = Clock::time_point;
+
+// Returns true if piece dropped and landed (needs match check)
+bool process_drop(PlayerBoard& board, TimePoint& last_drop) {
+    auto now = Clock::now();
+    if (std::chrono::duration_cast<std::chrono::milliseconds>(now - last_drop).count() < drop_speed)
+        return false;
+
+    last_drop = now;
+    Capsule t = board.cap;
+    t.r++;
+    if (board.fits(t)) {
+        board.cap = t;
+        return false;
+    }
+
+    // Piece landed
+    board.stamp(board.cap);
+    if (&board == &player) drain_input();
+    return true;
+}
+
+// Handle gravity phase, returns true if still processing
+bool process_gravity(PlayerBoard& board, TimePoint& last_gravity, TimePoint& last_drop) {
+    auto now = Clock::now();
+    if (std::chrono::duration_cast<std::chrono::milliseconds>(now - last_gravity).count() < 250)
+        return true;
+
+    last_gravity = now;
+    if (board.gravity_step()) return true;
+
+    // Gravity settled, check for new matches
+    if (board.find_and_remove_matches() > 0) return true;
+
+    // No more matches, determine next phase
+    if (!board.attack_queue.empty()) {
+        board.phase = Phase::SENDING;
+    } else if (board.cleared_viruses >= board.total_viruses) {
+        board.game_won = true;
+    } else {
+        board.phase = Phase::PLAYING;
+        new_piece(board);
+        last_drop = Clock::now();
+    }
+    return false;
+}
+
+// Transfer attacks to opponent
+void process_sending(PlayerBoard& board, PlayerBoard& opponent, TimePoint& last_drop) {
+    while (!board.attack_queue.empty()) {
+        opponent.attack_queue.push(board.attack_queue.front());
+        board.attack_queue.pop();
+    }
+    if (board.cleared_viruses >= board.total_viruses) {
+        board.game_won = true;
+    } else {
+        board.phase = Phase::PLAYING;
+        new_piece(board);
+        last_drop = Clock::now();
+    }
+}
+
+// Process incoming attacks
+bool process_receiving(PlayerBoard& board, TimePoint& last_gravity) {
+    if (!board.receive_attacks()) return false;
+    board.phase = Phase::GRAVITY;
+    last_gravity = Clock::now();
+    return true;
+}
+
+// Check if board should receive attacks
+void check_incoming_attacks(PlayerBoard& board, TimePoint& last_gravity) {
+    if (board.phase == Phase::PLAYING && !board.attack_queue.empty()) {
+        board.phase = Phase::RECEIVING;
+        last_gravity = Clock::now();
+    }
 }
 
 // ====================== RENDERING ======================
@@ -506,7 +554,6 @@ void render_board(const PlayerBoard& board, const char* label, int x_offset, boo
         overlay(board.cap.r2(), board.cap.c2(), board.cap.h2);
     }
 
-    // Move cursor to position
     std::cout << "\033[" << 4 << ";" << (x_offset + 1) << "H";
     std::cout << "\033[97;1m" << label << "\033[0m";
 
@@ -520,33 +567,21 @@ void render_board(const PlayerBoard& board, const char* label, int x_offset, boo
             std::cout << buf[r][c].txt;
         std::cout << "\033[90m|\033[0m";
 
-        // Info on the right side of the board
+        // Info panel
+        if (r == 0)  std::cout << " \033[90mScore:\033[0m " << board.score;
+        if (r == 2)  std::cout << " \033[90mVirus:\033[0m "
+                               << (board.total_viruses - board.cleared_viruses)
+                               << "/" << board.total_viruses;
+        if (r == 4)  std::cout << " \033[90mNext:\033[0m "
+                               << clr_ansi(board.nxt.h1) << "\u2588\u2588"
+                               << clr_ansi(board.nxt.h2) << "\u2588\u2588\033[0m";
+        if (r == 7)  std::cout << " \033[90mAttack:\033[0m " << board.attack_queue.size();
+
         if (show_controls) {
-            if (r == 0)  std::cout << " \033[90mScore:\033[0m " << board.score;
-            if (r == 2)  std::cout << " \033[90mVirus:\033[0m "
-                                   << (board.total_viruses - board.cleared_viruses)
-                                   << "/" << board.total_viruses;
-            if (r == 4) {
-                std::cout << " \033[90mNext:\033[0m "
-                          << clr_ansi(board.nxt.h1) << "\u2588\u2588"
-                          << clr_ansi(board.nxt.h2) << "\u2588\u2588\033[0m";
-            }
-            if (r == 7)  std::cout << " \033[90mAttack:\033[0m " << board.attack_queue.size();
             if (r == 9)  std::cout << " \033[90mA/D  Move\033[0m";
             if (r == 10) std::cout << " \033[90mW    Rotate\033[0m";
             if (r == 11) std::cout << " \033[90mS    Drop\033[0m";
             if (r == 12) std::cout << " \033[90mQ    Quit\033[0m";
-        } else {
-            if (r == 0)  std::cout << " \033[90mScore:\033[0m " << board.score;
-            if (r == 2)  std::cout << " \033[90mVirus:\033[0m "
-                                   << (board.total_viruses - board.cleared_viruses)
-                                   << "/" << board.total_viruses;
-            if (r == 4) {
-                std::cout << " \033[90mNext:\033[0m "
-                          << clr_ansi(board.nxt.h1) << "\u2588\u2588"
-                          << clr_ansi(board.nxt.h2) << "\u2588\u2588\033[0m";
-            }
-            if (r == 7)  std::cout << " \033[90mAttack:\033[0m " << board.attack_queue.size();
         }
     }
 
@@ -554,37 +589,28 @@ void render_board(const PlayerBoard& board, const char* label, int x_offset, boo
     std::cout << "\033[90m  '----------------'\033[0m";
 }
 
+const char* status_text() {
+    if (player.game_over) return "\033[91;1m         YOU LOSE! Bot wins!\033[0m";
+    if (bot.game_over)    return "\033[92;1m         YOU WIN! Bot lost!\033[0m";
+    if (player.phase == Phase::GRAVITY || bot.phase == Phase::GRAVITY)
+        return "\033[96m                      Settling...\033[0m";
+    if (player.phase == Phase::RECEIVING)
+        return "\033[91m                   Receiving attack!\033[0m";
+    if (bot.phase == Phase::RECEIVING)
+        return "\033[92m                    Sending attack!\033[0m";
+    return "                      ";
+}
+
 void render() {
     anim_frame++;
-
-    // Clear screen
     std::cout << "\033[2J\033[H";
-
-    // Title
     std::cout << "\033[97;1m                    DR. MARIO — VS BOT\033[0m\n\n";
 
-    // Render both boards side by side
     render_board(player, "PLAYER", 2, true);
     render_board(bot, "  BOT", 38, false);
 
-    // Status line
     int status_row = 6 + ROWS + 2;
-    std::cout << "\033[" << status_row << ";1H";
-
-    if (player.game_over) {
-        std::cout << "\033[91;1m         YOU LOSE! Bot wins!\033[0m";
-    } else if (bot.game_over) {
-        std::cout << "\033[92;1m         YOU WIN! Bot lost!\033[0m";
-    } else if (player.phase == Phase::GRAVITY || bot.phase == Phase::GRAVITY) {
-        std::cout << "\033[96m                      Settling...\033[0m";
-    } else if (player.phase == Phase::RECEIVING) {
-        std::cout << "\033[91m                   Receiving attack!\033[0m";
-    } else if (bot.phase == Phase::RECEIVING) {
-        std::cout << "\033[92m                    Sending attack!\033[0m";
-    } else {
-        std::cout << "                      ";
-    }
-
+    std::cout << "\033[" << status_row << ";1H" << status_text();
     std::cout << "\033[" << (status_row + 2) << ";1H";
     std::cout.flush();
 }
@@ -595,59 +621,49 @@ int main() {
     std::srand(static_cast<unsigned>(std::time(nullptr)));
 
     enable_raw_mode();
-    std::cout << "\033[?1049h";
-    std::cout << "\033[?25l";
-    std::cout << "\033[2J\033[H";
+    std::cout << "\033[?1049h\033[?25l\033[2J\033[H";
     std::cout.flush();
 
     // ---- menu ----
+    auto select_option = [](const char* prompt, std::initializer_list<std::pair<char, int>> options, int& result) -> bool {
+        std::cout << prompt;
+        std::cout.flush();
+        result = 0;
+        while (result == 0) {
+            int ch = poll_key();
+            if (ch == 'q' || ch == 'Q') return false;
+            for (auto& [key, val] : options)
+                if (ch == key) { result = val; break; }
+            if (result == 0)
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+        return true;
+    };
+
     std::cout << "\n\n    \033[97;1m  DR. MARIO — VS BOT\033[0m  (Terminal Edition)\n\n";
-    std::cout << "    Select virus count:\n";
-    std::cout << "      \033[93m[1]\033[0m  Low    ( 5)\n";
-    std::cout << "      \033[93m[2]\033[0m  Medium (10)\n";
-    std::cout << "      \033[93m[3]\033[0m  High   (20)\n";
-    std::cout << "      \033[93m[4]\033[0m  Ultra  (30)\n\n";
-    std::cout << "    > ";
-    std::cout.flush();
 
-    int nv = 0;
-    while (nv == 0) {
-        int ch = poll_key();
-        if (ch == '1') nv = 5;
-        else if (ch == '2') nv = 10;
-        else if (ch == '3') nv = 20;
-        else if (ch == '4') nv = 30;
-        else if (ch == 'q' || ch == 'Q') {
-            std::cout << "\033[2J\033[H";
-            return 0;
-        }
-        if (nv == 0)
-            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    int nv;
+    if (!select_option(
+        "    Select virus count:\n"
+        "      \033[93m[1]\033[0m  Low    ( 5)\n"
+        "      \033[93m[2]\033[0m  Medium (10)\n"
+        "      \033[93m[3]\033[0m  High   (20)\n"
+        "      \033[93m[4]\033[0m  Ultra  (30)\n\n    > ",
+        {{'1', 5}, {'2', 10}, {'3', 20}, {'4', 30}},
+        nv)) {
+        std::cout << "\033[2J\033[H";
+        return 0;
     }
 
-    // ---- speed selection ----
-    std::cout << "\n    Select speed:\n";
-    std::cout << "      \033[93m[1]\033[0m  Low\n";
-    std::cout << "      \033[93m[2]\033[0m  Medium\n";
-    std::cout << "      \033[93m[3]\033[0m  High\n\n";
-    std::cout << "    > ";
-    std::cout.flush();
+    std::cout << "\n    Select speed:\n"
+              << "      \033[93m[1]\033[0m  Low\n"
+              << "      \033[93m[2]\033[0m  Medium\n"
+              << "      \033[93m[3]\033[0m  High\n\n    > ";
 
-    drop_speed = 380;
-    while (drop_speed == 380) {
-        int ch = poll_key();
-        if (ch == '1') drop_speed = 480;
-        else if (ch == '2') drop_speed = 280;
-        else if (ch == '3') drop_speed = 140;
-        else if (ch == 'q' || ch == 'Q') {
-            std::cout << "\033[2J\033[H";
-            return 0;
-        }
-        if (drop_speed == 380)
-            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    if (!select_option("", {{'1', 480}, {'2', 280}, {'3', 140}}, drop_speed)) {
+        std::cout << "\033[2J\033[H";
+        return 0;
     }
-
-
 
     // ---- start music ----
     music_pid = fork();
@@ -660,31 +676,14 @@ int main() {
 
     // ---- init ----
     game_over = false;
+    init_board(player, nv);
+    init_board(bot, nv);
 
-    player.clear_grid();
-    player.score = 0;
-    player.game_over = false;
-    player.game_won = false;
-    player.phase = Phase::PLAYING;
-    place_viruses(player, nv);
-    spawn(player.nxt);
-    new_piece(player);
-
-    bot.clear_grid();
-    bot.score = 0;
-    bot.game_over = false;
-    bot.game_won = false;
-    bot.phase = Phase::PLAYING;
-    place_viruses(bot, nv);
-    spawn(bot.nxt);
-    new_piece(bot);
-
-    using Clock = std::chrono::steady_clock;
-    auto player_last_drop = Clock::now();
-    auto player_last_gravity = Clock::now();
-    auto bot_last_drop = Clock::now();
-    auto bot_last_gravity = Clock::now();
-    auto bot_last_move = Clock::now();
+    TimePoint player_last_drop = Clock::now();
+    TimePoint player_last_gravity = Clock::now();
+    TimePoint bot_last_drop = Clock::now();
+    TimePoint bot_last_gravity = Clock::now();
+    TimePoint bot_last_move = Clock::now();
 
     // ---- game loop ----
     while (!game_over && !player.game_over && !bot.game_over) {
@@ -694,188 +693,74 @@ int main() {
         handle_player_input();
         if (game_over) break;
 
-        // ====== PLAYER PIECE DROP ======
-        if (player.phase == Phase::PLAYING) {
-            if (std::chrono::duration_cast<std::chrono::milliseconds>(
-                    now - player_last_drop).count() >= drop_speed) {
-                player_last_drop = now;
-
-                Capsule t = player.cap; t.r++;
-                if (player.fits(t)) {
-                    player.cap = t;
+        // ====== PLAYER PHASE PROCESSING ======
+        switch (player.phase) {
+        case Phase::PLAYING:
+            if (process_drop(player, player_last_drop)) {
+                if (player.find_and_remove_matches() > 0) {
+                    player.phase = Phase::GRAVITY;
+                    player_last_gravity = Clock::now();
+                } else if (player.cleared_viruses >= player.total_viruses) {
+                    player.game_won = true;
                 } else {
-                    player.stamp(player.cap);
-                    drain_input();
-
-                    if (player.find_and_remove_matches() > 0) {
-                        player.phase = Phase::GRAVITY;
-                        player_last_gravity = Clock::now();
-                    } else {
-                        if (player.cleared_viruses >= player.total_viruses) {
-                            player.game_won = true;
-                        } else {
-                            new_piece(player);
-                        }
-                    }
+                    new_piece(player);
                 }
             }
-        }
+            break;
 
-        // ====== PLAYER GRAVITY ======
-        else if (player.phase == Phase::GRAVITY) {
-            if (std::chrono::duration_cast<std::chrono::milliseconds>(
-                    now - player_last_gravity).count() >= 250) {
-                player_last_gravity = now;
+        case Phase::GRAVITY:
+            process_gravity(player, player_last_gravity, player_last_drop);
+            break;
 
-                if (player.gravity_step()) {
-                    // pieces still falling
-                } else {
-                    if (player.find_and_remove_matches() > 0) {
-                        // new chain
-                    } else {
-                        // Check if we have attacks to send
-                        if (!player.attack_queue.empty()) {
-                            player.phase = Phase::SENDING;
-                        } else if (player.cleared_viruses >= player.total_viruses) {
-                            player.game_won = true;
-                        } else {
-                            player.phase = Phase::PLAYING;
-                            new_piece(player);
-                            player_last_drop = Clock::now();
-                        }
-                    }
-                }
-            }
-        }
+        case Phase::SENDING:
+            process_sending(player, bot, player_last_drop);
+            break;
 
-        // ====== PLAYER SENDING ATTACKS ======
-        else if (player.phase == Phase::SENDING) {
-            // Transfer all attacks to bot at once
-            while (!player.attack_queue.empty()) {
-                int color = player.attack_queue.front();
-                player.attack_queue.pop();
-                bot.attack_queue.push(color);
-            }
-            if (player.cleared_viruses >= player.total_viruses) {
-                player.game_won = true;
-            } else {
-                player.phase = Phase::PLAYING;
-                new_piece(player);
-                player_last_drop = Clock::now();
-            }
-        }
-
-        // ====== PLAYER RECEIVING (processing attacks) ======
-        else if (player.phase == Phase::RECEIVING) {
-            // Place all attack pieces at top, then let gravity handle falling
-            if (!player.receive_attacks()) {
+        case Phase::RECEIVING:
+            if (!process_receiving(player, player_last_gravity))
                 player.game_over = true;
-            } else {
-                player.phase = Phase::GRAVITY;
-                player_last_gravity = Clock::now();
-            }
+            break;
         }
 
         // ====== BOT AI MOVE ======
-        if (bot.phase == Phase::PLAYING) {
-            if (std::chrono::duration_cast<std::chrono::milliseconds>(
-                    now - bot_last_move).count() >= 100) {
-                bot_last_move = now;
-                bot_ai_move();
-            }
+        if (bot.phase == Phase::PLAYING &&
+            std::chrono::duration_cast<std::chrono::milliseconds>(now - bot_last_move).count() >= 100) {
+            bot_last_move = now;
+            bot_ai_move();
         }
 
-        // ====== BOT PIECE DROP ======
-        if (bot.phase == Phase::PLAYING) {
-            if (std::chrono::duration_cast<std::chrono::milliseconds>(
-                    now - bot_last_drop).count() >= drop_speed) {
-                bot_last_drop = now;
-
-                Capsule t = bot.cap; t.r++;
-                if (bot.fits(t)) {
-                    bot.cap = t;
+        // ====== BOT PHASE PROCESSING ======
+        switch (bot.phase) {
+        case Phase::PLAYING:
+            if (process_drop(bot, bot_last_drop)) {
+                if (bot.find_and_remove_matches() > 0) {
+                    bot.phase = Phase::GRAVITY;
+                    bot_last_gravity = Clock::now();
+                } else if (bot.cleared_viruses >= bot.total_viruses) {
+                    bot.game_won = true;
                 } else {
-                    bot.stamp(bot.cap);
-
-                    if (bot.find_and_remove_matches() > 0) {
-                        bot.phase = Phase::GRAVITY;
-                        bot_last_gravity = Clock::now();
-                    } else {
-                        if (bot.cleared_viruses >= bot.total_viruses) {
-                            bot.game_won = true;
-                        } else {
-                            new_piece(bot);
-                        }
-                    }
+                    new_piece(bot);
                 }
             }
-        }
+            break;
 
-        // ====== BOT GRAVITY ======
-        else if (bot.phase == Phase::GRAVITY) {
-            if (std::chrono::duration_cast<std::chrono::milliseconds>(
-                    now - bot_last_gravity).count() >= 250) {
-                bot_last_gravity = now;
+        case Phase::GRAVITY:
+            process_gravity(bot, bot_last_gravity, bot_last_drop);
+            break;
 
-                if (bot.gravity_step()) {
-                    // pieces still falling
-                } else {
-                    if (bot.find_and_remove_matches() > 0) {
-                        // new chain
-                    } else {
-                        // Check if bot has attacks to send
-                        if (!bot.attack_queue.empty()) {
-                            bot.phase = Phase::SENDING;
-                        } else if (bot.cleared_viruses >= bot.total_viruses) {
-                            bot.game_won = true;
-                        } else {
-                            bot.phase = Phase::PLAYING;
-                            new_piece(bot);
-                            bot_last_drop = Clock::now();
-                        }
-                    }
-                }
-            }
-        }
+        case Phase::SENDING:
+            process_sending(bot, player, bot_last_drop);
+            break;
 
-        // ====== BOT SENDING ATTACKS ======
-        else if (bot.phase == Phase::SENDING) {
-            // Transfer all attacks to player at once
-            while (!bot.attack_queue.empty()) {
-                int color = bot.attack_queue.front();
-                bot.attack_queue.pop();
-                player.attack_queue.push(color);
-            }
-            if (bot.cleared_viruses >= bot.total_viruses) {
-                bot.game_won = true;
-            } else {
-                bot.phase = Phase::PLAYING;
-                new_piece(bot);
-                bot_last_drop = Clock::now();
-            }
-        }
-
-        // ====== BOT RECEIVING ======
-        else if (bot.phase == Phase::RECEIVING) {
-            // Place all attack pieces at top, then let gravity handle falling
-            if (!bot.receive_attacks()) {
+        case Phase::RECEIVING:
+            if (!process_receiving(bot, bot_last_gravity))
                 bot.game_over = true;
-            } else {
-                bot.phase = Phase::GRAVITY;
-                bot_last_gravity = Clock::now();
-            }
+            break;
         }
 
         // ====== CHECK FOR INCOMING ATTACKS ======
-        // After any phase transition, check if attacks are incoming
-        if (player.phase == Phase::PLAYING && !player.attack_queue.empty()) {
-            player.phase = Phase::RECEIVING;
-            player_last_gravity = Clock::now();
-        }
-        if (bot.phase == Phase::PLAYING && !bot.attack_queue.empty()) {
-            bot.phase = Phase::RECEIVING;
-            bot_last_gravity = Clock::now();
-        }
+        check_incoming_attacks(player, player_last_gravity);
+        check_incoming_attacks(bot, bot_last_gravity);
 
         render();
         std::this_thread::sleep_for(std::chrono::milliseconds(12));
@@ -887,11 +772,8 @@ int main() {
     if (music_pid > 0) kill(music_pid, SIGTERM);
 
     // wait for any key to exit
-    while (true) {
-        int ch = poll_key();
-        if (ch != 0) break;
+    while (poll_key() == 0)
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    }
 
     return 0;
 }
