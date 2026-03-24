@@ -104,25 +104,25 @@ struct PlayerBoard {
     Phase phase = Phase::PLAYING;
     bool game_over = false;
     bool game_won = false;
-    
+
     // Queue of attack pieces to add
     std::queue<int> attack_queue;
-    
+
     void clear_grid() {
         for (auto& row : grid)
             for (auto& p : row) { p.color = EMPTY; p.virus = false; p.capId = 0; }
         next_cap_id = 1;
     }
-    
+
     bool cell_free(int r, int c) const {
         if (r < 0 && c >= 0 && c < COLS) return true;
         return r >= 0 && r < ROWS && c >= 0 && c < COLS && grid[r][c].color == EMPTY;
     }
-    
+
     bool fits(const Capsule& c) const {
         return cell_free(c.r1(), c.c1()) && cell_free(c.r2(), c.c2());
     }
-    
+
     void stamp(const Capsule& c) {
         int id = next_cap_id++;
         if (c.r1() >= 0 && c.r1() < ROWS && c.c1() >= 0 && c.c1() < COLS) {
@@ -136,10 +136,10 @@ struct PlayerBoard {
             grid[c.r2()][c.c2()].capId = id;
         }
     }
-    
+
     int find_and_remove_matches() {
         std::vector<std::vector<bool>> kill(ROWS, std::vector<bool>(COLS, false));
-        
+
         // Track colors cleared for attacks
         std::vector<int> colors_cleared;
 
@@ -190,10 +190,10 @@ struct PlayerBoard {
         if (removed) {
             cleared_viruses += virus_killed;
             score += removed * 10;
-            
+
             // Deduplicate colors and add to attack queue
             std::sort(colors_cleared.begin(), colors_cleared.end());
-            colors_cleared.erase(std::unique(colors_cleared.begin(), colors_cleared.end()), 
+            colors_cleared.erase(std::unique(colors_cleared.begin(), colors_cleared.end()),
                                   colors_cleared.end());
             for (int color : colors_cleared) {
                 attack_queue.push(color);
@@ -201,7 +201,7 @@ struct PlayerBoard {
         }
         return removed;
     }
-    
+
     bool gravity_step() {
         bool moved = false;
         std::vector<std::vector<bool>> done(ROWS, std::vector<bool>(COLS, false));
@@ -284,7 +284,7 @@ struct PlayerBoard {
         }
         return moved;
     }
-    
+
     // Drop an attack piece from the top, returns true if successful
     bool add_attack_piece(int color) {
         int c = std::rand() % COLS;
@@ -297,26 +297,13 @@ struct PlayerBoard {
                 break;
             }
         }
-        
+
         if (target_row == -1) return false; // Column full, can't add
-        
+
         grid[target_row][c].color = color;
         grid[target_row][c].virus = false;
         grid[target_row][c].capId = 0; // Orphaned piece
-        
-        return true;
-    }
-    
-    bool process_attacks() {
-        if (attack_queue.empty()) return false;
-        
-        int color = attack_queue.front();
-        attack_queue.pop();
-        
-        if (!add_attack_piece(color)) {
-            // Couldn't place attack piece - board might be full
-            return false;
-        }
+
         return true;
     }
 };
@@ -414,22 +401,22 @@ void drain_input() {
 
 void bot_ai_move() {
     if (bot.phase != Phase::PLAYING) return;
-    
+
     // Random AI: pick a random column and orientation, then drop
     static int target_col = -1;
     static int target_orient = -1;
     static bool moving_to_target = false;
-    
+
     if (!moving_to_target) {
         // Pick new target
         target_col = std::rand() % (COLS - 1);
         target_orient = std::rand() % 4;
         moving_to_target = true;
     }
-    
+
     // Move toward target
     Capsule t = bot.cap;
-    
+
     // First orient
     if (bot.cap.orient != target_orient) {
         t = bot.cap;
@@ -439,7 +426,7 @@ void bot_ai_move() {
             return;
         }
     }
-    
+
     // Then move column
     if (bot.cap.c < target_col) {
         t = bot.cap;
@@ -456,7 +443,7 @@ void bot_ai_move() {
             return;
         }
     }
-    
+
     // At target, drop faster
     moving_to_target = false;
 }
@@ -521,12 +508,12 @@ void render_board(const PlayerBoard& board, const char* label, int x_offset, boo
         for (int c = 0; c < COLS; c++)
             std::cout << buf[r][c].txt;
         std::cout << "\033[90m|\033[0m";
-        
+
         // Info on the right side of the board
         if (show_controls) {
             if (r == 0)  std::cout << " \033[90mScore:\033[0m " << board.score;
-            if (r == 2)  std::cout << " \033[90mVirus:\033[0m " 
-                                   << (board.total_viruses - board.cleared_viruses) 
+            if (r == 2)  std::cout << " \033[90mVirus:\033[0m "
+                                   << (board.total_viruses - board.cleared_viruses)
                                    << "/" << board.total_viruses;
             if (r == 4) {
                 std::cout << " \033[90mNext:\033[0m "
@@ -540,8 +527,8 @@ void render_board(const PlayerBoard& board, const char* label, int x_offset, boo
             if (r == 12) std::cout << " \033[90mQ    Quit\033[0m";
         } else {
             if (r == 0)  std::cout << " \033[90mScore:\033[0m " << board.score;
-            if (r == 2)  std::cout << " \033[90mVirus:\033[0m " 
-                                   << (board.total_viruses - board.cleared_viruses) 
+            if (r == 2)  std::cout << " \033[90mVirus:\033[0m "
+                                   << (board.total_viruses - board.cleared_viruses)
                                    << "/" << board.total_viruses;
             if (r == 4) {
                 std::cout << " \033[90mNext:\033[0m "
@@ -558,21 +545,21 @@ void render_board(const PlayerBoard& board, const char* label, int x_offset, boo
 
 void render() {
     anim_frame++;
-    
+
     // Clear screen
     std::cout << "\033[2J\033[H";
-    
+
     // Title
     std::cout << "\033[97;1m                    DR. MARIO — VS BOT\033[0m\n\n";
-    
+
     // Render both boards side by side
     render_board(player, "PLAYER", 2, true);
     render_board(bot, "  BOT", 38, false);
-    
+
     // Status line
     int status_row = 6 + ROWS + 2;
     std::cout << "\033[" << status_row << ";1H";
-    
+
     if (player.game_over) {
         std::cout << "\033[91;1m         YOU LOSE! Bot wins!\033[0m";
     } else if (bot.game_over) {
@@ -586,7 +573,7 @@ void render() {
     } else {
         std::cout << "                      ";
     }
-    
+
     std::cout << "\033[" << (status_row + 2) << ";1H";
     std::cout.flush();
 }
@@ -648,7 +635,7 @@ int main() {
         if (drop_speed == 380)
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
-    
+
 
 
     // ---- start music ----
@@ -662,7 +649,7 @@ int main() {
 
     // ---- init ----
     game_over = false;
-    
+
     player.clear_grid();
     player.score = 0;
     player.game_over = false;
@@ -671,7 +658,7 @@ int main() {
     place_viruses(player, nv);
     spawn(player.nxt);
     new_piece(player);
-    
+
     bot.clear_grid();
     bot.score = 0;
     bot.game_over = false;
@@ -722,7 +709,7 @@ int main() {
                 }
             }
         }
-        
+
         // ====== PLAYER GRAVITY ======
         else if (player.phase == Phase::GRAVITY) {
             if (std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -749,7 +736,7 @@ int main() {
                 }
             }
         }
-        
+
         // ====== PLAYER SENDING ATTACKS ======
         else if (player.phase == Phase::SENDING) {
             if (!player.attack_queue.empty()) {
@@ -767,13 +754,13 @@ int main() {
                 }
             }
         }
-        
+
         // ====== PLAYER RECEIVING (processing attacks) ======
         else if (player.phase == Phase::RECEIVING) {
             if (std::chrono::duration_cast<std::chrono::milliseconds>(
                     now - player_last_gravity).count() >= 250) {
                 player_last_gravity = now;
-                
+
                 if (!player.attack_queue.empty()) {
                     int color = player.attack_queue.front();
                     player.attack_queue.pop();
@@ -781,7 +768,7 @@ int main() {
                         player.game_over = true;
                     }
                 }
-                
+
                 if (player.attack_queue.empty()) {
                     // After adding attacks, check for matches
                     if (player.find_and_remove_matches() > 0) {
@@ -830,7 +817,7 @@ int main() {
                 }
             }
         }
-        
+
         // ====== BOT GRAVITY ======
         else if (bot.phase == Phase::GRAVITY) {
             if (std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -857,7 +844,7 @@ int main() {
                 }
             }
         }
-        
+
         // ====== BOT SENDING ATTACKS ======
         else if (bot.phase == Phase::SENDING) {
             if (!bot.attack_queue.empty()) {
@@ -875,13 +862,13 @@ int main() {
                 }
             }
         }
-        
+
         // ====== BOT RECEIVING ======
         else if (bot.phase == Phase::RECEIVING) {
             if (std::chrono::duration_cast<std::chrono::milliseconds>(
                     now - bot_last_gravity).count() >= 250) {
                 bot_last_gravity = now;
-                
+
                 if (!bot.attack_queue.empty()) {
                     int color = bot.attack_queue.front();
                     bot.attack_queue.pop();
@@ -889,7 +876,7 @@ int main() {
                         bot.game_over = true;
                     }
                 }
-                
+
                 if (bot.attack_queue.empty()) {
                     if (bot.find_and_remove_matches() > 0) {
                         bot.phase = Phase::GRAVITY;
@@ -902,7 +889,7 @@ int main() {
                 }
             }
         }
-        
+
         // ====== CHECK FOR INCOMING ATTACKS ======
         // After any phase transition, check if attacks are incoming
         if (player.phase == Phase::PLAYING && !player.attack_queue.empty()) {
