@@ -101,6 +101,7 @@ static int total_viruses = 0;
 static int cleared_viruses = 0;
 static bool game_over = false;
 static bool game_won = false;
+static int drop_speed = 280;
 static Phase phase = Phase::PLAYING;
 static int next_cap_id = 1;
 static int anim_frame = 0;
@@ -382,7 +383,7 @@ void render() {
                 else
                     buf[r][c].txt = std::string(clr_ansi(grid[r][c].color)) + "\u2588\u2588";
             } else {
-                buf[r][c].txt = "  ";
+                buf[r][c].txt = "\033[90m ·\033[0m";
             }
         }
 
@@ -408,7 +409,7 @@ void render() {
         std::cout << "\033[90m|\033[0m";
 
         if (r == 0)  std::cout << "   \033[90mScore:\033[0m " << score;
-        if (r == 2)  std::cout << "   \033[90mLevel:\033[0m " << level;
+        if (r == 2)  std::cout << "   \033[90mSpeed:\033[0m " << drop_speed << "ms";
         if (r == 4)  std::cout << "   \033[90mVirus:\033[0m "
                                << (total_viruses - cleared_viruses) << "/" << total_viruses;
         if (r == 7) {
@@ -462,15 +463,37 @@ int main() {
     int nv = 0;
     while (nv == 0) {
         int ch = poll_key();
-        if (ch == '1') { nv = 5;  level = 1; }
-        else if (ch == '2') { nv = 10; level = 2; }
-        else if (ch == '3') { nv = 20; level = 3; }
-        else if (ch == '4') { nv = 30; level = 4; }
+        if (ch == '1') nv = 5;
+        else if (ch == '2') nv = 10;
+        else if (ch == '3') nv = 20;
+        else if (ch == '4') nv = 30;
         else if (ch == 'q' || ch == 'Q') {
             std::cout << "\033[2J\033[H";
             return 0;
         }
         if (nv == 0)
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+
+    // ---- speed selection ----
+    std::cout << "\n    Select speed:\n";
+    std::cout << "      \033[93m[1]\033[0m  Low\n";
+    std::cout << "      \033[93m[2]\033[0m  Medium\n";
+    std::cout << "      \033[93m[3]\033[0m  High\n\n";
+    std::cout << "    > ";
+    std::cout.flush();
+
+    drop_speed = 380;
+    while (drop_speed == 380) {
+        int ch = poll_key();
+        if (ch == '1') drop_speed = 480;
+        else if (ch == '2') drop_speed = 280;
+        else if (ch == '3') drop_speed = 140;
+        else if (ch == 'q' || ch == 'Q') {
+            std::cout << "\033[2J\033[H";
+            return 0;
+        }
+        if (drop_speed == 380)
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
 
@@ -496,6 +519,7 @@ int main() {
     auto new_piece = [&]() {
         cap = nxt;
         spawn(nxt);
+        drop_speed = std::max(60, drop_speed - 2);
         if (!fits(cap)) game_over = true;
     };
     new_piece();
@@ -507,7 +531,7 @@ int main() {
     // ---- game loop ----
     while (!game_over && !game_won) {
 
-        int speed = std::max(60, 380 - level * 50);
+        int speed = drop_speed;
         auto now = Clock::now();
 
         // ====== PLAYING PHASE ======
