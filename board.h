@@ -257,26 +257,45 @@ struct PlayerBoard {
     bool receive_attacks(std::queue<int>& attacks) {
         if (attacks.empty()) return true;
 
-        int count = attacks.size();
-        if (count > COLS) return false;
+        int count = std::min((int)attacks.size(), 4);
 
-        std::vector<int> cols(COLS);
-        for (int c = 0; c < COLS; c++) cols[c] = c;
-        for (int i = COLS - 1; i > 0; i--) {
+        // Collect available columns (row 0 must be empty)
+        std::vector<int> available;
+        for (int c = 0; c < COLS; c++)
+            if (grid[0][c].color == EMPTY)
+                available.push_back(c);
+
+        // Shuffle available columns
+        for (int i = available.size() - 1; i > 0; i--) {
             int j = std::rand() % (i + 1);
-            std::swap(cols[i], cols[j]);
+            std::swap(available[i], available[j]);
         }
 
-        for (int i = 0; i < count; i++)
-            if (grid[0][cols[i]].color != EMPTY) return false;
+        // Pick non-adjacent columns from the shuffled list
+        std::vector<int> chosen;
+        for (int c : available) {
+            bool adjacent = false;
+            for (int cc : chosen)
+                if (std::abs(c - cc) == 1) { adjacent = true; break; }
+            if (!adjacent) {
+                chosen.push_back(c);
+                if ((int)chosen.size() == count) break;
+            }
+        }
 
-        for (int i = 0; i < count; i++) {
-            int c = cols[i];
+        // Not enough non-adjacent slots
+        if ((int)chosen.size() < count) return false;
+
+        for (int c : chosen) {
             grid[0][c].color = attacks.front();
             grid[0][c].virus = false;
             grid[0][c].capId = 0;
             attacks.pop();
         }
+
+        // Discard any excess attacks
+        while (!attacks.empty()) attacks.pop();
+
         return true;
     }
 
