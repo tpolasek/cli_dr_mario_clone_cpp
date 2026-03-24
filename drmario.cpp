@@ -69,48 +69,9 @@ static bool game_over = false;
 
 // ====================== HELPERS ======================
 
-int rnd_color() { return 1 + std::rand() % 3; }
-
-void place_viruses(PlayerBoard& board, int count) {
-    int placed = 0;
-    while (placed < count) {
-        int r = 4 + std::rand() % (ROWS - 4);
-        int c = std::rand() % COLS;
-        if (board.grid[r][c].color == EMPTY) {
-            board.grid[r][c].color = rnd_color();
-            board.grid[r][c].virus = true;
-            board.grid[r][c].capId = 0;
-            placed++;
-        }
-    }
-    board.total_viruses = count;
-    board.cleared_viruses = 0;
-}
-
-void spawn(Capsule& c) {
-    c.h1 = rnd_color();
-    c.h2 = rnd_color();
-    c.c = COLS / 2 - 1;
-    c.r = 0;
-    c.orient = 0;
-}
-
-void new_piece(PlayerBoard& board) {
-    board.cap = board.nxt;
-    spawn(board.nxt);
-    drop_speed = std::max(60, drop_speed - 2);
-    if (!board.fits(board.cap)) board.game_over = true;
-}
-
-void init_board(PlayerBoard& board, int virus_count) {
-    board.clear_grid();
-    board.score = 0;
-    board.game_over = false;
-    board.game_won = false;
-    board.phase = Phase::PLAYING;
-    place_viruses(board, virus_count);
-    spawn(board.nxt);
+void new_piece_with_speed(PlayerBoard& board) {
     new_piece(board);
+    drop_speed = std::max(60, drop_speed - 2);
 }
 
 // ====================== PLAYER INPUT ======================
@@ -203,7 +164,7 @@ bool process_phases(PlayerBoard& board, std::queue<int>& my_attacks, std::queue<
         }
 
         // Spawn next piece
-        new_piece(board);
+        new_piece_with_speed(board);
         return false;
     }
 
@@ -222,7 +183,7 @@ bool process_phases(PlayerBoard& board, std::queue<int>& my_attacks, std::queue<
             board.game_won = true;
         } else {
             board.phase = Phase::PLAYING;
-            new_piece(board);
+            new_piece_with_speed(board);
             last_drop = Clock::now();
         }
         return false;
@@ -234,86 +195,6 @@ bool process_phases(PlayerBoard& board, std::queue<int>& my_attacks, std::queue<
 
 
 // ====================== RENDERING ======================
-
-const char* clr_ansi(int c) {
-    switch (c) {
-        case RED:    return "\033[91m";
-        case YELLOW: return "\033[93m";
-        case BLUE:   return "\033[94m";
-        default:     return "\033[0m";
-    }
-}
-
-const char* dark_ansi(int c) {
-    switch (c) {
-        case RED:    return "\033[31m";
-        case YELLOW: return "\033[33m";
-        case BLUE:   return "\033[34m";
-        default:     return "\033[0m";
-    }
-}
-
-void render_board(const PlayerBoard& board, const char* label, int x_offset, bool show_controls, int attack_count) {
-    struct CellView { std::string txt; };
-    std::vector<std::vector<CellView>> buf(ROWS, std::vector<CellView>(COLS));
-
-    const char* virus_char = (anim_frame & 32) ? "\u2742" : "\u2747";
-
-    for (int r = 0; r < ROWS; r++)
-        for (int c = 0; c < COLS; c++) {
-            if (board.grid[r][c].color != EMPTY) {
-                if (board.grid[r][c].virus)
-                    buf[r][c].txt = std::string(dark_ansi(board.grid[r][c].color)) + virus_char + virus_char;
-                else
-                    buf[r][c].txt = std::string(clr_ansi(board.grid[r][c].color)) + "\u2588\u2588";
-            } else {
-                buf[r][c].txt = "\033[90m ·\033[0m";
-            }
-        }
-
-    auto overlay = [&](int r, int c, int color) {
-        if (r >= 0 && r < ROWS && c >= 0 && c < COLS)
-            buf[r][c].txt = std::string(clr_ansi(color)) + "\u2588\u2588";
-    };
-    if (board.phase == Phase::PLAYING) {
-        overlay(board.cap.r1(), board.cap.c1(), board.cap.h1);
-        overlay(board.cap.r2(), board.cap.c2(), board.cap.h2);
-    }
-
-    std::cout << "\033[" << 4 << ";" << (x_offset + 1) << "H";
-    std::cout << "\033[97;1m" << label << "\033[0m";
-
-    std::cout << "\033[" << 5 << ";" << x_offset << "H";
-    std::cout << "\033[90m  .----------------.\033[0m";
-
-    for (int r = 0; r < ROWS; r++) {
-        std::cout << "\033[" << (6 + r) << ";" << x_offset << "H";
-        std::cout << "\033[90m  |\033[0m";
-        for (int c = 0; c < COLS; c++)
-            std::cout << buf[r][c].txt;
-        std::cout << "\033[90m|\033[0m";
-
-        // Info panel
-        if (r == 0)  std::cout << " \033[90mScore:\033[0m " << board.score;
-        if (r == 2)  std::cout << " \033[90mVirus:\033[0m "
-                               << (board.total_viruses - board.cleared_viruses)
-                               << "/" << board.total_viruses;
-        if (r == 4)  std::cout << " \033[90mNext:\033[0m "
-                               << clr_ansi(board.nxt.h1) << "\u2588\u2588"
-                               << clr_ansi(board.nxt.h2) << "\u2588\u2588\033[0m";
-        if (r == 7)  std::cout << " \033[90mAttack:\033[0m " << attack_count;
-
-        if (show_controls) {
-            if (r == 9)  std::cout << " \033[90mA/D  Move\033[0m";
-            if (r == 10) std::cout << " \033[90mW    Rotate\033[0m";
-            if (r == 11) std::cout << " \033[90mS    Drop\033[0m";
-            if (r == 12) std::cout << " \033[90mQ    Quit\033[0m";
-        }
-    }
-
-    std::cout << "\033[" << (6 + ROWS) << ";" << x_offset << "H";
-    std::cout << "\033[90m  '----------------'\033[0m";
-}
 
 const char* status_text() {
     if (player.game_over) return "\033[91;1m         YOU LOSE! Bot wins!\033[0m";
@@ -328,8 +209,8 @@ void render() {
     std::cout << "\033[2J\033[H";
     std::cout << "\033[97;1m                    DR. MARIO — VS BOT\033[0m\n\n";
 
-    render_board(player, "PLAYER", 2, true, player_attacks.size());
-    render_board(bot, "  BOT", 38, false, bot_attacks.size());
+    player.render_board("PLAYER", 2, true, player_attacks.size(), anim_frame);
+    bot.render_board("  BOT", 38, false, bot_attacks.size(), anim_frame);
 
     int status_row = 6 + ROWS + 2;
     std::cout << "\033[" << status_row << ";1H" << status_text();
