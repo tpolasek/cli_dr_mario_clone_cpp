@@ -9,6 +9,7 @@
 #include "bot_ai.h"
 #include "terminal_io.h"
 
+#include <cmath>
 #include <iostream>
 #include <cstdlib>
 #include <ctime>
@@ -25,6 +26,9 @@
 const int BOT_INPUT_TICK_RATE = 10;
 const int BOT_GRAVITY_TICK_RATE = 20;
 // ====================== GAME STATE ======================
+static int GAME_FPS = 60;
+
+
 static PlayerBoard player;
 static PlayerBoard bot;
 static BotState bot_state;
@@ -288,7 +292,7 @@ int main() {
                        bot_last_drop, bot_last_gravity, false);
         render();
         ticks++;
-        std::this_thread::sleep_for(std::chrono::milliseconds(12));
+        std::this_thread::sleep_for(std::chrono::milliseconds(((int)std::ceilf(1000.0/GAME_FPS))));
     }
 
     // stop music
