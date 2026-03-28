@@ -31,7 +31,7 @@ static int drop_speed = 280;
 static int anim_frame = 0;
 static pid_t music_pid = 0;
 static bool game_over = false;
-
+static int ticks = 0;
 // ====================== HELPERS ======================
 
 void new_piece_with_speed(PlayerBoard& board) {
@@ -75,6 +75,11 @@ void handle_player_input() {
 
 void drain_input() {
     while (poll_key() != 0) {}
+}
+
+void input_sleep(){
+    // to avoid hot-looping
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
 }
 
 // ====================== PHASE TRANSITIONS ======================
@@ -207,7 +212,7 @@ int main() {
             for (auto& [key, val] : options)
                 if (ch == key) { result = val; break; }
             if (result == 0)
-                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                input_sleep();
         }
         return true;
     };
@@ -278,6 +283,7 @@ int main() {
         process_phases(bot, bot_attacks, player_attacks,
                        bot_last_drop, bot_last_gravity, false);
         render();
+        ticks++;
         std::this_thread::sleep_for(std::chrono::milliseconds(12));
     }
 
@@ -287,7 +293,7 @@ int main() {
     render();
     std::cout << "\nPress 'q' to exit...\n";
     while (poll_key() != 'q') {
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        input_sleep();
     }
     return 0;
 }
