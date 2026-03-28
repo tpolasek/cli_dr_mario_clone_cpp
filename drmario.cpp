@@ -20,14 +20,17 @@
 
 
 
-// ====================== GAME STATE ======================
 
+// ======================  CONSANTS  ======================
+const int BOT_INPUT_TICK_RATE = 10;
+const int BOT_GRAVITY_TICK_RATE = 20;
+// ====================== GAME STATE ======================
 static PlayerBoard player;
 static PlayerBoard bot;
 static BotState bot_state;
 static std::queue<int> player_attacks; // attacks TO player (from bot)
 static std::queue<int> bot_attacks;    // attacks TO bot (from player)
-static int drop_speed = 280;
+static float drop_speed = 24;
 static int anim_frame = 0;
 static pid_t music_pid = 0;
 static bool game_over = false;
@@ -36,7 +39,7 @@ static int ticks = 0;
 
 void new_piece_with_speed(PlayerBoard& board) {
     board.new_piece();
-    drop_speed = std::max(60, drop_speed - 2);
+    drop_speed = std::fmax(5, drop_speed - 1.0/6.0); // 1/6 tick increment
 }
 
 // ====================== PLAYER INPUT ======================
@@ -90,20 +93,20 @@ using TimePoint = Clock::time_point;
 // Unified phase processing for both player and bot.
 // Returns true if game ended (game_won or game_over).
 bool process_phases(PlayerBoard& board, std::queue<int>& my_attacks, std::queue<int>& opponent_attacks,
-                    TimePoint& last_drop, TimePoint& last_gravity, bool is_player) {
+                    int& last_drop, int& last_gravity, bool is_player) {
     switch (board.phase) {
     case Phase::PLAYING: {
-        auto now = Clock::now();
         // Check win
         if (board.cleared_viruses >= board.total_viruses) {
             board.game_won = true;
             return true;
         }
 
-        if (std::chrono::duration_cast<std::chrono::milliseconds>(now - last_drop).count() < drop_speed)
+        if (ticks - last_drop <= std::ceil(drop_speed))
+            // Drop speed throttle
             return false;
 
-        last_drop = now;
+        last_drop = ticks;
         Capsule t = board.cap;
         t.r++;
         if (board.fits(t)) {
@@ -118,7 +121,7 @@ bool process_phases(PlayerBoard& board, std::queue<int>& my_attacks, std::queue<
         // Check for matches first
         if (board.find_and_remove_matches() > 0) {
             board.phase = Phase::GRAVITY;
-            last_gravity = Clock::now();
+            last_gravity = ticks;
             return false;
         }
 
@@ -130,7 +133,7 @@ bool process_phases(PlayerBoard& board, std::queue<int>& my_attacks, std::queue<
                 return true;
             }
             board.phase = Phase::GRAVITY;
-            last_gravity = Clock::now();
+            last_gravity = ticks;
             return false;
         }
 
@@ -141,10 +144,10 @@ bool process_phases(PlayerBoard& board, std::queue<int>& my_attacks, std::queue<
 
     case Phase::GRAVITY: {
         auto now = Clock::now();
-        if (std::chrono::duration_cast<std::chrono::milliseconds>(now - last_gravity).count() < 250)
+        if (ticks - last_gravity < BOT_GRAVITY_TICK_RATE)
             return false;
 
-        last_gravity = now;
+        last_gravity = ticks;
         if (board.gravity_step()) return false;
 
         // Gravity settled, check for new matches
@@ -158,7 +161,7 @@ bool process_phases(PlayerBoard& board, std::queue<int>& my_attacks, std::queue<
         } else {
             board.phase = Phase::PLAYING;
             new_piece_with_speed(board);
-            last_drop = Clock::now();
+            last_drop = ticks;
         }
         return false;
     }
@@ -237,10 +240,12 @@ int main() {
               << "      \033[93m[2]\033[0m  Medium\n"
               << "      \033[93m[3]\033[0m  High\n\n    > ";
 
-    if (!select_option("", {{'1', 480}, {'2', 280}, {'3', 140}}, drop_speed)) {
+    int drop_speed_int;
+    if (!select_option("", {{'1', 40}, {'2', 24}, {'3', 12}}, drop_speed_int)) {
         std::cout << "\033[2J\033[H";
         return 0;
     }
+    drop_speed = drop_speed_int;
 
     // ---- start music ----
     music_pid = fork();
@@ -255,11 +260,11 @@ int main() {
     player.init(nv);
     bot.init(nv);
 
-    TimePoint player_last_drop = Clock::now();
-    TimePoint player_last_gravity = Clock::now();
-    TimePoint bot_last_drop = Clock::now();
-    TimePoint bot_last_gravity = Clock::now();
-    TimePoint bot_last_move = Clock::now();
+    int player_last_drop = 0;
+    int player_last_gravity = 0;
+    int bot_last_drop = 0;
+    int bot_last_gravity = 0;
+    int bot_last_move = 0;
 
     // ---- game loop ----
     while (!(player.game_over || player.game_won || bot.game_won || bot.game_over)) {
@@ -273,9 +278,8 @@ int main() {
                        player_last_drop, player_last_gravity, true);
 
         // ====== BOT AI MOVE ======
-        if (bot.phase == Phase::PLAYING &&
-            std::chrono::duration_cast<std::chrono::milliseconds>(now - bot_last_move).count() >= 100) {
-            bot_last_move = now;
+        if (bot.phase == Phase::PLAYING && ((ticks - bot_last_move) >= BOT_INPUT_TICK_RATE)) {
+            bot_last_move = ticks;
             bot_ai_move(bot, bot_state);
         }
 
