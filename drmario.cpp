@@ -22,9 +22,9 @@
 
 
 
-// ======================  CONSANTS  ======================
+// ======================  CONSTANTS  ======================
 const int BOT_INPUT_TICK_RATE = 10;
-const int BOT_GRAVITY_TICK_RATE = 20;
+const int GRAVITY_TICK_RATE = 20;
 // ====================== GAME STATE ======================
 static int GAME_FPS = 60;
 
@@ -46,42 +46,34 @@ void new_piece_with_speed(PlayerBoard& board) {
     drop_speed = std::fmax(5, drop_speed - 1.0/6.0); // 1/6 tick increment
 }
 
-// ====================== PLAYER INPUT ======================
+// ====================== INPUT ======================
 
-void handle_player_input() {
+// Drain all pending keys from the input buffer. Returns QUIT if Q was pressed.
+Move get_player_drain_input_check_quit() {
+    while (true) {
+        int ch = poll_key();
+        if (ch == 0) return Move::NONE;
+        if (ch == 'q' || ch == 'Q') return Move::QUIT;
+    }
+}
+
+// Poll keyboard and return the player's move choice.
+Move get_player_move() {
+    Move move = Move::NONE;
     while (true) {
         int ch = poll_key();
         if (ch == 0) break;
 
-        if (ch == 'q' || ch == 'Q') {
-            game_over = true;
-            return;
-        }
+        if (ch == 'q' || ch == 'Q') { return Move::QUIT; }
 
-        if (player.phase != Phase::PLAYING) continue;
-
-        Capsule t = player.cap;
         switch (ch) {
-        case 'a': case 'A': t.c--; if (player.fits(t)) player.cap = t; break;
-        case 'd': case 'D': t.c++; if (player.fits(t)) player.cap = t; break;
-        case 's': case 'S':
-            t.r++;
-            if (player.fits(t)) player.cap = t;
-            break;
-        case 'w': case 'W':
-            t.rotate();
-            if (player.fits(t)) { player.cap = t; break; }
-            t.c--;  if (player.fits(t)) { player.cap = t; break; }
-            t.c += 2; if (player.fits(t)) { player.cap = t; break; }
-            t.c--;
-            t.r--;  if (player.fits(t)) { player.cap = t; break; }
-            break;
+        case 'a': case 'A': move = Move::LEFT;   break;
+        case 'd': case 'D': move = Move::RIGHT;  break;
+        case 's': case 'S': move = Move::DROP;   break;
+        case 'w': case 'W': move = Move::ROTATE; break;
         }
     }
-}
-
-void drain_input() {
-    while (poll_key() != 0) {}
+    return move;
 }
 
 void input_sleep(){
@@ -120,7 +112,6 @@ bool process_phases(PlayerBoard& board, std::queue<int>& my_attacks, std::queue<
 
         // Piece landed
         board.stamp(board.cap);
-        if (is_player) drain_input();
 
         // Check for matches first
         if (board.find_and_remove_matches() > 0) {
@@ -147,8 +138,7 @@ bool process_phases(PlayerBoard& board, std::queue<int>& my_attacks, std::queue<
     }
 
     case Phase::GRAVITY: {
-        auto now = Clock::now();
-        if (ticks - last_gravity < BOT_GRAVITY_TICK_RATE)
+        if (ticks - last_gravity < GRAVITY_TICK_RATE)
             return false;
 
         last_gravity = ticks;
@@ -272,22 +262,28 @@ int main() {
 
     // ---- game loop ----
     while (!(player.game_over || player.game_won || bot.game_won || bot.game_over)) {
-        auto now = Clock::now();
+        // ====== GATHER INPUTS ======
+        Move player_move = Move::NONE;
+        if (player.phase == Phase::PLAYING) {
+            player_move = get_player_move();
+        } else {
+            player_move = get_player_drain_input_check_quit();
+        }
+        if (player_move == Move::QUIT) break;
 
-        // ====== PLAYER INPUT ======
-        handle_player_input();
-
-        // ====== PLAYER PHASE PROCESSING ======
-        process_phases(player, player_attacks, bot_attacks,
-                       player_last_drop, player_last_gravity, true);
-
-        // ====== BOT AI MOVE ======
+        Move bot_move = Move::NONE;
         if (bot.phase == Phase::PLAYING && ((ticks - bot_last_move) >= BOT_INPUT_TICK_RATE)) {
             bot_last_move = ticks;
-            bot_ai_move(bot, bot_state);
+            bot_move = get_bot_move(bot, bot_state);
         }
 
-        // ====== BOT PHASE PROCESSING ======
+        // ====== APPLY MOVES ======
+        if (player.phase == Phase::PLAYING) apply_move(player, player_move);
+        if (bot.phase == Phase::PLAYING)     apply_move(bot, bot_move);
+
+        // ====== PHASE PROCESSING ======
+        process_phases(player, player_attacks, bot_attacks,
+                       player_last_drop, player_last_gravity, true);
         process_phases(bot, bot_attacks, player_attacks,
                        bot_last_drop, bot_last_gravity, false);
         render();

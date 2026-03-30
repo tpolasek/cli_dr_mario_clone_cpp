@@ -413,3 +413,31 @@ struct PlayerBoard {
         new_piece();
     }
 };
+
+// ====================== MOVE ABSTRACTION ======================
+
+enum class Move { NONE, LEFT, RIGHT, DOWN, ROTATE, DROP, QUIT };
+
+// Apply a move to the board's active capsule. Returns true if the move was valid.
+inline bool apply_move(PlayerBoard& board, Move m) {
+    if (board.phase != Phase::PLAYING || m == Move::NONE) return false;
+    Capsule t = board.cap;
+    switch (m) {
+    case Move::LEFT:   t.c--; break;
+    case Move::RIGHT:  t.c++; break;
+    case Move::DOWN:
+    case Move::DROP:
+        t.r++;
+        break;
+    case Move::ROTATE:
+        t.rotate();
+        if (board.fits(t)) { board.cap = t; return true; }
+        t.c--; if (board.fits(t)) { board.cap = t; return true; }
+        t.c += 2; if (board.fits(t)) { board.cap = t; return true; }
+        t.c--; t.r--; if (board.fits(t)) { board.cap = t; return true; }
+        return false;
+    default: return false;
+    }
+    if (board.fits(t)) { board.cap = t; return true; }
+    return false;
+}

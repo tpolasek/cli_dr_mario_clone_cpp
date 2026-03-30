@@ -111,22 +111,16 @@ static int simulate_drop(const PlayerBoard& b, int col, int orient, int h1, int 
 
 // ====================== MAIN BOT AI ======================
 
-void bot_ai_move(PlayerBoard& board, BotState& state) {
-    if (board.phase != Phase::PLAYING) return;
+Move get_bot_move(const PlayerBoard& board, BotState& state) {
+    if (board.phase != Phase::PLAYING) return Move::NONE;
 
     // If we already have a target and are still moving toward it, continue
     if (state.moving_to_target) {
         // Check if we've reached the target
         if (board.cap.c == state.target_col && board.cap.orient == state.target_orient) {
             state.moving_to_target = false;
-            state.down_tick = 0;
-            // Speed up drop
-            Capsule t = board.cap;
-            t.r++;
-            if (board.fits(t)) board.cap = t;
-            return;
+            return Move::DROP;
         }
-        // Continue moving toward target (see movement code below)
     } else {
         // Find the best placement by trying all columns and orientations
         int h1 = board.cap.h1;
@@ -190,17 +184,14 @@ void bot_ai_move(PlayerBoard& board, BotState& state) {
         // Try single rotation first
         Capsule t = board.cap;
         t.rotate();
-        if (board.fits(t)) { board.cap = t; return; }
+        if (board.fits(t)) return Move::ROTATE;
 
         // Try wall kicks
         t = board.cap; t.c--; t.rotate();
-        if (board.fits(t)) { board.cap = t; return; }
+        if (board.fits(t)) { state.target_col = board.cap.c - 1; return Move::LEFT; }
 
         t = board.cap; t.c++; t.rotate();
-        if (board.fits(t)) { board.cap = t; return; }
-
-        t = board.cap; t.r--; t.rotate();
-        if (board.fits(t)) { board.cap = t; return; }
+        if (board.fits(t)) { state.target_col = board.cap.c + 1; return Move::RIGHT; }
 
         // If we can't rotate, we may need to move horizontally first to get space
     }
@@ -208,38 +199,26 @@ void bot_ai_move(PlayerBoard& board, BotState& state) {
     // Move horizontally toward target column
     if (board.cap.c < state.target_col) {
         Capsule t = board.cap; t.c++;
-        if (board.fits(t)) { board.cap = t; return; }
+        if (board.fits(t)) return Move::RIGHT;
     } else if (board.cap.c > state.target_col) {
         Capsule t = board.cap; t.c--;
-        if (board.fits(t)) { board.cap = t; return; }
+        if (board.fits(t)) return Move::LEFT;
     }
 
     // At target column but wrong orientation - try rotation with wall kicks again
     if (board.cap.orient != state.target_orient) {
         Capsule t = board.cap;
         t.rotate();
-        if (board.fits(t)) { board.cap = t; return; }
+        if (board.fits(t)) return Move::ROTATE;
 
         t = board.cap; t.c--; t.rotate();
-        if (board.fits(t)) { board.cap = t; return; }
+        if (board.fits(t)) return Move::LEFT;
 
         t = board.cap; t.c++; t.rotate();
-        if (board.fits(t)) { board.cap = t; return; }
-
-        t = board.cap; t.r--; t.rotate();
-        if (board.fits(t)) { board.cap = t; return; }
+        if (board.fits(t)) return Move::RIGHT;
     }
 
-    // Can't reach target orientation at this column - just drop here
+    // Can't reach target orientation at this column - drop here
     state.moving_to_target = false;
-
-    // Press down to speed up drop based on difficulty
-    state.down_tick++;
-    int down_interval = 11 - state.difficulty;  // 10, 9, 8, ..., 1
-    if (state.down_tick >= down_interval) {
-        state.down_tick = 0;
-        Capsule t = board.cap;
-        t.r++;
-        if (board.fits(t)) board.cap = t;
-    }
+    return Move::DROP;
 }
