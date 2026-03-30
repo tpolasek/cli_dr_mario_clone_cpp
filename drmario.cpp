@@ -28,22 +28,24 @@ const int GRAVITY_TICK_RATE = 20;
 // ====================== GAME STATE ======================
 static int GAME_FPS = 60;
 
+struct Game {
+    PlayerBoard player;
+    PlayerBoard bot;
+    BotState bot_state;
+    std::queue<int> player_attacks; // attacks TO player (from bot)
+    std::queue<int> bot_attacks;    // attacks TO bot (from player)
+    float drop_speed = 24;
+    int ticks = 0;
+    int anim_frame = 0;
+    pid_t music_pid = 0;
+};
 
-static PlayerBoard player;
-static PlayerBoard bot;
-static BotState bot_state;
-static std::queue<int> player_attacks; // attacks TO player (from bot)
-static std::queue<int> bot_attacks;    // attacks TO bot (from player)
-static float drop_speed = 24;
-static int anim_frame = 0;
-static pid_t music_pid = 0;
-static bool game_over = false;
-static int ticks = 0;
+static Game game;
 // ====================== HELPERS ======================
 
 void new_piece_with_speed(PlayerBoard& board) {
     board.new_piece();
-    drop_speed = std::fmax(5, drop_speed - 1.0/6.0); // 1/6 tick increment
+    game.drop_speed = std::fmax(5, game.drop_speed - 1.0/6.0); // 1/6 tick increment
 }
 
 // ====================== INPUT ======================
@@ -98,11 +100,11 @@ bool process_phases(PlayerBoard& board, std::queue<int>& my_attacks, std::queue<
             return true;
         }
 
-        if (ticks - last_drop <= std::ceil(drop_speed))
+        if (game.ticks - last_drop <= std::ceil(game.drop_speed))
             // Drop speed throttle
             return false;
 
-        last_drop = ticks;
+        last_drop = game.ticks;
         Capsule t = board.cap;
         t.r++;
         if (board.fits(t)) {
@@ -116,7 +118,7 @@ bool process_phases(PlayerBoard& board, std::queue<int>& my_attacks, std::queue<
         // Check for matches first
         if (board.find_and_remove_matches() > 0) {
             board.phase = Phase::GRAVITY;
-            last_gravity = ticks;
+            last_gravity = game.ticks;
             return false;
         }
 
@@ -128,7 +130,7 @@ bool process_phases(PlayerBoard& board, std::queue<int>& my_attacks, std::queue<
                 return true;
             }
             board.phase = Phase::GRAVITY;
-            last_gravity = ticks;
+            last_gravity = game.ticks;
             return false;
         }
 
@@ -138,10 +140,10 @@ bool process_phases(PlayerBoard& board, std::queue<int>& my_attacks, std::queue<
     }
 
     case Phase::GRAVITY: {
-        if (ticks - last_gravity < GRAVITY_TICK_RATE)
+        if (game.ticks - last_gravity < GRAVITY_TICK_RATE)
             return false;
 
-        last_gravity = ticks;
+        last_gravity = game.ticks;
         if (board.gravity_step()) return false;
 
         // Gravity settled, check for new matches
@@ -155,7 +157,7 @@ bool process_phases(PlayerBoard& board, std::queue<int>& my_attacks, std::queue<
         } else {
             board.phase = Phase::PLAYING;
             new_piece_with_speed(board);
-            last_drop = ticks;
+            last_drop = game.ticks;
         }
         return false;
     }
@@ -168,20 +170,20 @@ bool process_phases(PlayerBoard& board, std::queue<int>& my_attacks, std::queue<
 // ====================== RENDERING ======================
 
 const char* status_text() {
-    if (player.game_over) return "\033[91;1m         YOU LOSE! Bot wins!\033[0m";
-    if (bot.game_over)    return "\033[92;1m         YOU WIN! Bot lost!\033[0m";
-    if (player.phase == Phase::GRAVITY || bot.phase == Phase::GRAVITY)
+    if (game.player.game_over) return "\033[91;1m         YOU LOSE! Bot wins!\033[0m";
+    if (game.bot.game_over)    return "\033[92;1m         YOU WIN! Bot lost!\033[0m";
+    if (game.player.phase == Phase::GRAVITY || game.bot.phase == Phase::GRAVITY)
         return "\033[96m                      Settling...\033[0m";
     return "                      ";
 }
 
 void render() {
-    anim_frame++;
+    game.anim_frame++;
     std::cout << "\033[2J\033[H";
     std::cout << "\033[97;1m                    DR. MARIO — VS BOT\033[0m\n\n";
 
-    player.render_board("PLAYER", 2, true, player_attacks.size(), anim_frame);
-    bot.render_board("  BOT", 38, false, bot_attacks.size(), anim_frame);
+    game.player.render_board("PLAYER", 2, true, game.player_attacks.size(), game.anim_frame);
+    game.bot.render_board("  BOT", 38, false, game.bot_attacks.size(), game.anim_frame);
 
     int status_row = 6 + ROWS + 2;
     std::cout << "\033[" << status_row << ";1H" << status_text();
@@ -239,21 +241,26 @@ int main() {
         std::cout << "\033[2J\033[H";
         return 0;
     }
-    drop_speed = drop_speed_int;
+    game.drop_speed = drop_speed_int;
 
     // ---- start music ----
-    music_pid = fork();
-    if (music_pid == 0) {
+    game.music_pid = fork();
+    if (game.music_pid == 0) {
+        setpgid(0, 0);  // create own process group for clean kill
         while (true) {
-            execlp("afplay", "afplay", "queque.mp3", nullptr);
-            _exit(1);
+            pid_t p = fork();
+            if (p == 0) {
+                execlp("afplay", "afplay", "queque.mp3", nullptr);
+                _exit(1);
+            }
+            wait(nullptr);  // wait for afplay to finish, then loop
         }
     }
 
     // ---- init ----
     unsigned int seed = static_cast<unsigned>(std::time(nullptr));
-    player.init(nv, seed);
-    bot.init(nv, seed);
+    game.player.init(nv, seed);
+    game.bot.init(nv, seed);
 
     int player_last_drop = 0;
     int player_last_gravity = 0;
@@ -262,10 +269,10 @@ int main() {
     int bot_last_move = 0;
 
     // ---- game loop ----
-    while (!(player.game_over || player.game_won || bot.game_won || bot.game_over)) {
+    while (!(game.player.game_over || game.player.game_won || game.bot.game_won || game.bot.game_over)) {
         // ====== GATHER INPUTS ======
         Move player_move = Move::NONE;
-        if (player.phase == Phase::PLAYING) {
+        if (game.player.phase == Phase::PLAYING) {
             player_move = get_player_move();
         } else {
             player_move = get_player_drain_input_check_quit();
@@ -273,27 +280,27 @@ int main() {
         if (player_move == Move::QUIT) break;
 
         Move bot_move = Move::NONE;
-        if (bot.phase == Phase::PLAYING && ((ticks - bot_last_move) >= BOT_INPUT_TICK_RATE)) {
-            bot_last_move = ticks;
-            bot_move = get_bot_move(bot, bot_state);
+        if (game.bot.phase == Phase::PLAYING && ((game.ticks - bot_last_move) >= BOT_INPUT_TICK_RATE)) {
+            bot_last_move = game.ticks;
+            bot_move = get_bot_move(game.bot, game.bot_state);
         }
 
         // ====== APPLY MOVES ======
-        if (player.phase == Phase::PLAYING) apply_move(player, player_move);
-        if (bot.phase == Phase::PLAYING)     apply_move(bot, bot_move);
+        if (game.player.phase == Phase::PLAYING) apply_move(game.player, player_move);
+        if (game.bot.phase == Phase::PLAYING)     apply_move(game.bot, bot_move);
 
         // ====== PHASE PROCESSING ======
-        process_phases(player, player_attacks, bot_attacks,
+        process_phases(game.player, game.player_attacks, game.bot_attacks,
                        player_last_drop, player_last_gravity, true);
-        process_phases(bot, bot_attacks, player_attacks,
+        process_phases(game.bot, game.bot_attacks, game.player_attacks,
                        bot_last_drop, bot_last_gravity, false);
         render();
-        ticks++;
+        game.ticks++;
         std::this_thread::sleep_for(std::chrono::milliseconds(((int)std::ceilf(1000.0/GAME_FPS))));
     }
 
-    // stop music
-    if (music_pid > 0) kill(music_pid, SIGTERM);
+    // stop music (kill entire process group)
+    if (game.music_pid > 0) kill(-game.music_pid, SIGTERM);
 
     render();
     std::cout << "\nPress 'q' to exit...\n";
