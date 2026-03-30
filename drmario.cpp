@@ -244,16 +244,18 @@ int main() {
     game.drop_speed = drop_speed_int;
 
     // ---- start music ----
-    game.music_pid = fork();
-    if (game.music_pid == 0) {
-        setpgid(0, 0);  // create own process group for clean kill
-        while (true) {
-            pid_t p = fork();
-            if (p == 0) {
-                execlp("afplay", "afplay", "queque.mp3", nullptr);
-                _exit(1);
+    if (access("queque.mp3", F_OK) == 0) {
+        game.music_pid = fork();
+        if (game.music_pid == 0) {
+            setpgid(0, 0);  // create own process group for clean kill
+            while (true) {
+                pid_t p = fork();
+                if (p == 0) {
+                    execlp("afplay", "afplay", "queque.mp3", nullptr);
+                    _exit(1);
+                }
+                wait(nullptr);  // wait for afplay to finish, then loop
             }
-            wait(nullptr);  // wait for afplay to finish, then loop
         }
     }
 
