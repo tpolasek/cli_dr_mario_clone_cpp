@@ -70,13 +70,6 @@ inline const char* dark_ansi(int c) {
 
 inline int rnd_color() { return 1 + std::rand() % 3; }
 
-inline void spawn(Capsule& c) {
-    c.h1 = rnd_color();
-    c.h2 = rnd_color();
-    c.c = COLS / 2 - 1;
-    c.r = 0;
-    c.orient = 0;
-}
 
 struct PlayerBoard {
     std::array<std::array<Piece, COLS>, ROWS> grid;
@@ -89,6 +82,23 @@ struct PlayerBoard {
     Phase phase = Phase::PLAYING;
     bool game_over = false;
     bool game_won = false;
+    unsigned int rng_state = 1;
+
+    // Per-board RNG (simple LCG)
+    int board_rand() {
+        rng_state = rng_state * 1103515245 + 12345;
+        return (int)((rng_state >> 16) & 0x7FFF);
+    }
+
+    int board_rnd_color() { return 1 + board_rand() % 3; }
+
+    void board_spawn(Capsule& c) {
+        c.h1 = board_rnd_color();
+        c.h2 = board_rnd_color();
+        c.c = COLS / 2 - 1;
+        c.r = 0;
+        c.orient = 0;
+    }
 
     void clear_grid() {
         for (auto& row : grid)
@@ -364,10 +374,10 @@ struct PlayerBoard {
     void place_viruses(int count) {
         int placed = 0;
         while (placed < count) {
-            int r = 4 + std::rand() % (ROWS - 4);
-            int c = std::rand() % COLS;
+            int r = 4 + board_rand() % (ROWS - 4);
+            int c = board_rand() % COLS;
             if (grid[r][c].color == EMPTY) {
-                grid[r][c].color = rnd_color();
+                grid[r][c].color = board_rnd_color();
                 grid[r][c].virus = true;
                 grid[r][c].capId = 0;
                 placed++;
@@ -379,7 +389,7 @@ struct PlayerBoard {
 
     void new_piece() {
         cap = nxt;
-        spawn(nxt);
+        board_spawn(nxt);
         if (!fits(cap)) game_over = true;
     }
 
@@ -402,14 +412,15 @@ struct PlayerBoard {
         grid = src.grid;
     }
 
-    void init(int virus_count) {
+    void init(int virus_count, unsigned int seed) {
         clear_grid();
         score = 0;
         game_over = false;
         game_won = false;
         phase = Phase::PLAYING;
+        rng_state = seed;
         place_viruses(virus_count);
-        spawn(nxt);
+        board_spawn(nxt);
         new_piece();
     }
 };

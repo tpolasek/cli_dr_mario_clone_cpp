@@ -251,8 +251,9 @@ int main() {
     }
 
     // ---- init ----
-    player.init(nv);
-    bot.init(nv);
+    unsigned int seed = static_cast<unsigned>(std::time(nullptr));
+    player.init(nv, seed);
+    bot.init(nv, seed);
 
     int player_last_drop = 0;
     int player_last_gravity = 0;
