@@ -16,13 +16,13 @@ static int evaluate_board(const PlayerBoard& b, int viruses_cleared, int remaini
     score += viruses_cleared * 1000000;
 
     // Analyze remaining viruses
-    int max_height = 0;
+    int max_height = ROWS;  // highest occupied row (lowest row number = highest stack)
     int virus_proximity_score = 0;
     int num_viruses_near_top = 0;
 
     for (int r = 0; r < ROWS; r++) {
         for (int c = 0; c < COLS; c++) {
-            if (b.grid[r][c].color != EMPTY && r > max_height)
+            if (b.grid[r][c].color != EMPTY && r < max_height)
                 max_height = r;
 
             if (b.grid[r][c].virus) {
@@ -76,8 +76,8 @@ static int evaluate_board(const PlayerBoard& b, int viruses_cleared, int remaini
     // Heavy penalty for viruses near overflow
     score -= num_viruses_near_top * 50000;
 
-    // Moderate penalty for high board
-    score -= max_height * max_height * 5;
+    // Moderate penalty for high board (max_height is the highest occupied row, lower = higher stack)
+    score -= (ROWS - max_height) * (ROWS - max_height) * 5;
 
     return score;
 }

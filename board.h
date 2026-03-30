@@ -277,6 +277,7 @@ struct PlayerBoard {
 
         // Shuffle available columns
         for (int i = available.size() - 1; i > 0; i--) {
+            // Intentionally use std:rnd because attacks sent are not deterministic
             int j = std::rand() % (i + 1);
             std::swap(available[i], available[j]);
         }
