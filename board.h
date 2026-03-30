@@ -383,6 +383,25 @@ struct PlayerBoard {
         if (!fits(cap)) game_over = true;
     }
 
+    // Simulate full cascade: remove matches, gravity, repeat.
+    // Returns total viruses cleared across all cascades.
+    int simulate_cascade() {
+        int total = 0;
+        while (true) {
+            int before = cleared_viruses;
+            int removed = find_and_remove_matches();
+            total += (cleared_viruses - before);
+            if (removed == 0 && !gravity_step())
+                break;
+        }
+        return total;
+    }
+
+    // Copy only the grid state from another board (for fast simulation).
+    void clone_grid(const PlayerBoard& src) {
+        grid = src.grid;
+    }
+
     void init(int virus_count) {
         clear_grid();
         score = 0;
