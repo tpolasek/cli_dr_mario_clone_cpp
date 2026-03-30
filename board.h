@@ -68,8 +68,6 @@ inline const char* dark_ansi(int c) {
 
 // ====================== PLAYER STATE ======================
 
-inline int rnd_color() { return 1 + std::rand() % 3; }
-
 
 struct PlayerBoard {
     std::array<std::array<Piece, COLS>, ROWS> grid;
@@ -184,6 +182,7 @@ struct PlayerBoard {
     }
 
     void flush_cascade(std::queue<int>& opponent_attacks) {
+        // Only chained attacks are considerd as attacks (so >=2 cascade_colors)
         if (cascade_colors.size() >= 2) {
             for (int color : cascade_colors)
                 opponent_attacks.push(color);
@@ -373,6 +372,7 @@ struct PlayerBoard {
     }
 
     void place_viruses(int count) {
+        count = std::min(count, (ROWS - 4) * COLS);  // guard against infinite loop
         int placed = 0;
         while (placed < count) {
             int r = 4 + board_rand() % (ROWS - 4);
