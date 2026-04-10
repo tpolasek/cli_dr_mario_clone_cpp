@@ -38,9 +38,9 @@ struct Game {
 static Game game;
 // ====================== HELPERS ======================
 
-void new_piece_with_speed(PlayerBoard& board) {
+void new_piece_with_speed(PlayerBoard& board, float& drop_speed) {
     board.new_piece();
-    game.drop_speed = std::fmax(5, game.drop_speed - 1.0/6.0); // 1/6 tick increment
+    drop_speed = std::fmax(5, drop_speed - 1.0/6.0); // 1/6 tick increment
 }
 
 // ====================== INPUT ======================
@@ -130,7 +130,7 @@ bool process_phases(PlayerBoard& board, std::queue<int>& my_attacks, std::queue<
         }
 
         // Spawn next piece
-        new_piece_with_speed(board);
+        new_piece_with_speed(board, game.drop_speed);
         return false;
     }
 
@@ -151,7 +151,7 @@ bool process_phases(PlayerBoard& board, std::queue<int>& my_attacks, std::queue<
             board.game_won = true;
         } else {
             board.phase = Phase::PLAYING;
-            new_piece_with_speed(board);
+            new_piece_with_speed(board, game.drop_speed);
             last_drop = game.ticks;
         }
         return false;
