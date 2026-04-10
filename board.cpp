@@ -228,68 +228,6 @@ bool PlayerBoard::receive_attacks(std::queue<int>& attacks) {
     return true;
 }
 
-void PlayerBoard::render_board(const char* label, int x_offset, bool show_controls, int attack_count, int anim_frame) const {
-    struct CellView { std::string txt; };
-    std::vector<std::vector<CellView>> buf(ROWS, std::vector<CellView>(COLS));
-
-    const char* virus_char = (anim_frame & 32) ? "\u2742" : "\u2747";
-
-    for (int r = 0; r < ROWS; r++)
-        for (int c = 0; c < COLS; c++) {
-            if (grid[r][c].color != EMPTY) {
-                if (grid[r][c].virus)
-                    buf[r][c].txt = std::string(dark_ansi(grid[r][c].color)) + virus_char + virus_char;
-                else
-                    buf[r][c].txt = std::string(clr_ansi(grid[r][c].color)) + "\u2588\u2588";
-            } else {
-                buf[r][c].txt = "\033[90m ·\033[0m";
-            }
-        }
-
-    auto overlay = [&](int r, int c, int color) {
-        if (r >= 0 && r < ROWS && c >= 0 && c < COLS)
-            buf[r][c].txt = std::string(clr_ansi(color)) + "\u2588\u2588";
-    };
-    if (phase == Phase::PLAYING) {
-        overlay(cap.r1(), cap.c1(), cap.h1);
-        overlay(cap.r2(), cap.c2(), cap.h2);
-    }
-
-    std::cout << "\033[" << 4 << ";" << (x_offset + 1) << "H";
-    std::cout << "\033[97;1m" << label << "\033[0m";
-
-    std::cout << "\033[" << 5 << ";" << x_offset << "H";
-    std::cout << "\033[90m  .----------------.\033[0m";
-
-    for (int r = 0; r < ROWS; r++) {
-        std::cout << "\033[" << (6 + r) << ";" << x_offset << "H";
-        std::cout << "\033[90m  |\033[0m";
-        for (int c = 0; c < COLS; c++)
-            std::cout << buf[r][c].txt;
-        std::cout << "\033[90m|\033[0m";
-
-        // Info panel
-        if (r == 0)  std::cout << " \033[90mScore:\033[0m " << score;
-        if (r == 2)  std::cout << " \033[90mVirus:\033[0m "
-                               << (total_viruses - cleared_viruses)
-                               << "/" << total_viruses;
-        if (r == 4)  std::cout << " \033[90mNext:\033[0m "
-                               << clr_ansi(nxt.h1) << "\u2588\u2588"
-                               << clr_ansi(nxt.h2) << "\u2588\u2588\033[0m";
-        if (r == 7)  std::cout << " \033[90mAttack:\033[0m " << attack_count;
-
-        if (show_controls) {
-            if (r == 9)  std::cout << " \033[90mA/D  Move\033[0m";
-            if (r == 10) std::cout << " \033[90mW    Rotate\033[0m";
-            if (r == 11) std::cout << " \033[90mS    Drop\033[0m";
-            if (r == 12) std::cout << " \033[90mQ    Quit\033[0m";
-        }
-    }
-
-    std::cout << "\033[" << (6 + ROWS) << ";" << x_offset << "H";
-    std::cout << "\033[90m  '----------------'\033[0m";
-}
-
 void PlayerBoard::place_viruses(int count) {
     count = std::min(count, (ROWS - VIRUS_FREE_ROWS) * COLS);  // guard against infinite loop
     int placed = 0;

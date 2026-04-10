@@ -8,6 +8,7 @@
 #include "board.h"
 #include "bot_ai.h"
 #include "terminal_io.h"
+#include "renderer.h"
 
 #include <cmath>
 #include <iostream>
@@ -161,43 +162,16 @@ bool process_phases(PlayerBoard& board, std::queue<int>& my_attacks, std::queue<
 
 
 
-// ====================== RENDERING ======================
-
-const char* status_text() {
-    if (game.player.game_over) return "\033[91;1m         YOU LOSE! Bot wins!\033[0m";
-    if (game.bot.game_over)    return "\033[92;1m         YOU WIN! Bot lost!\033[0m";
-    if (game.player.phase == Phase::GRAVITY || game.bot.phase == Phase::GRAVITY)
-        return "\033[96m                      Settling...\033[0m";
-    return "                      ";
-}
-
-void render() {
-    game.anim_frame++;
-    std::cout << "\033[2J\033[H";
-    std::cout << "\033[97;1m                    DR. MARIO — VS BOT\033[0m\n\n";
-
-    game.player.render_board("PLAYER", 2, true, game.player_attacks.size(), game.anim_frame);
-    game.bot.render_board("  BOT", 38, false, game.bot_attacks.size(), game.anim_frame);
-
-    int status_row = 6 + ROWS + 2;
-    std::cout << "\033[" << status_row << ";1H" << status_text();
-    std::cout << "\033[" << (status_row + 2) << ";1H";
-    std::cout.flush();
-}
-
 // ====================== MAIN ======================
 
 int main() {
     std::srand(static_cast<unsigned>(std::time(nullptr)));
 
     enable_raw_mode();
-    std::cout << "\033[?1049h\033[?25l\033[2J\033[H";
-    std::cout.flush();
+    render_enter_alt_screen();
 
     // ---- menu ----
-    auto select_option = [](const char* prompt, std::initializer_list<std::pair<char, int>> options, int& result) -> bool {
-        std::cout << prompt;
-        std::cout.flush();
+    auto select_option = [](std::initializer_list<std::pair<char, int>> options, int& result) -> bool {
         result = 0;
         while (result == 0) {
             int ch = poll_key();
@@ -210,29 +184,20 @@ int main() {
         return true;
     };
 
-    std::cout << "\n\n    \033[97;1m  DR. MARIO — VS BOT\033[0m  (Terminal Edition)\n\n";
+    render_title();
 
     int nv;
-    if (!select_option(
-        "    Select virus count:\n"
-        "      \033[93m[1]\033[0m  Low    ( 5)\n"
-        "      \033[93m[2]\033[0m  Medium (10)\n"
-        "      \033[93m[3]\033[0m  High   (20)\n"
-        "      \033[93m[4]\033[0m  Ultra  (30)\n\n    > ",
-        {{'1', 5}, {'2', 10}, {'3', 20}, {'4', 30}},
-        nv)) {
-        std::cout << "\033[2J\033[H";
+    render_virus_menu();
+    if (!select_option({{'1', 5}, {'2', 10}, {'3', 20}, {'4', 30}}, nv)) {
+        render_clear_screen();
         return 0;
     }
 
-    std::cout << "\n    Select speed:\n"
-              << "      \033[93m[1]\033[0m  Low\n"
-              << "      \033[93m[2]\033[0m  Medium\n"
-              << "      \033[93m[3]\033[0m  High\n\n    > ";
+    render_speed_menu();
 
     int drop_speed_int;
-    if (!select_option("", {{'1', 40}, {'2', 24}, {'3', 12}}, drop_speed_int)) {
-        std::cout << "\033[2J\033[H";
+    if (!select_option({{'1', 40}, {'2', 24}, {'3', 12}}, drop_speed_int)) {
+        render_clear_screen();
         return 0;
     }
     game.drop_speed = drop_speed_int;
@@ -290,7 +255,7 @@ int main() {
                        player_last_drop, player_last_gravity, true);
         process_phases(game.bot, game.bot_attacks, game.player_attacks,
                        bot_last_drop, bot_last_gravity, false);
-        render();
+        render_game(game.player, game.bot, game.player_attacks.size(), game.bot_attacks.size(), game.anim_frame);
         game.ticks++;
         std::this_thread::sleep_for(std::chrono::milliseconds(((int)std::ceilf(1000.0/game_fps))));
     }
@@ -298,7 +263,7 @@ int main() {
     // stop music (kill entire process group)
     if (game.music_pid > 0) kill(-game.music_pid, SIGTERM);
 
-    render();
+    render_game(game.player, game.bot, game.player_attacks.size(), game.bot_attacks.size(), game.anim_frame);
     std::cout << "\nPress 'q' to exit...\n";
     while (poll_key() != 'q') {
         input_sleep();

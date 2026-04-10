@@ -43,26 +43,6 @@ enum class Phase { PLAYING, GRAVITY };
 
 enum class Move { NONE, LEFT, RIGHT, DOWN, ROTATE, DROP, QUIT };
 
-// ====================== ANSI HELPERS ======================
-
-inline const char* clr_ansi(int c) {
-    switch (c) {
-        case RED:    return "\033[91m";
-        case YELLOW: return "\033[93m";
-        case BLUE:   return "\033[94m";
-        default:     return "\033[0m";
-    }
-}
-
-inline const char* dark_ansi(int c) {
-    switch (c) {
-        case RED:    return "\033[31m";
-        case YELLOW: return "\033[33m";
-        case BLUE:   return "\033[34m";
-        default:     return "\033[0m";
-    }
-}
-
 // ====================== PLAYER STATE ======================
 
 struct PlayerBoard {
@@ -92,7 +72,6 @@ struct PlayerBoard {
     void clear_cell(int r, int c);
     bool gravity_step();
     bool receive_attacks(std::queue<int>& attacks);
-    void render_board(const char* label, int x_offset, bool show_controls, int attack_count, int anim_frame = 0) const;
     void place_viruses(int count);
     void new_piece();
     int simulate_cascade();
