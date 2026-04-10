@@ -75,7 +75,7 @@ Move get_player_move() {
 
 void input_sleep(){
     // to avoid hot-looping
-    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    std::this_thread::sleep_for(std::chrono::microseconds(100));
 }
 
 // ====================== PHASE TRANSITIONS ======================
@@ -257,6 +257,7 @@ int main() {
                        bot_last_drop, bot_last_gravity, false);
         render_game(game.player, game.bot, game.player_attacks.size(), game.bot_attacks.size(), game.anim_frame);
         game.ticks++;
+
         std::this_thread::sleep_for(std::chrono::milliseconds(((int)std::ceilf(1000.0/game_fps))));
     }
 

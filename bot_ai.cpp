@@ -2,18 +2,30 @@
 #include <algorithm>
 #include <climits>
 
+// ====================== AI EVALUATION CONSTANTS ======================
+namespace {
+    constexpr int WIN_SCORE               = 100000000;
+    constexpr int SCORE_VIRUS_MULTIPLIER  = 1000000;
+    constexpr int PENALTY_VIRUS_NEAR_TOP  = 50000;
+    constexpr int BONUS_ONE_PIECE_TO_CLEAR   = 5000;
+    constexpr int BONUS_TWO_PIECES_TO_CLEAR  = 1000;
+    constexpr int BONUS_THREE_PIECES_TO_CLEAR = 200;
+    constexpr int PENALTY_BOARD_HEIGHT_MULT  = 5;
+    constexpr int VIRUS_NEAR_TOP_ROW         = 2;
+}
+
 // ====================== EVALUATION ======================
 
 // Score a board position. Higher = better.
 static int evaluate_board(const PlayerBoard& b, int viruses_cleared, int remaining_viruses) {
     // Win is always best
     if (viruses_cleared >= remaining_viruses)
-        return 100000000;
+        return WIN_SCORE;
 
     int score = 0;
 
     // Primary: viruses cleared this move (including cascades)
-    score += viruses_cleared * 1000000;
+    score += viruses_cleared * SCORE_VIRUS_MULTIPLIER;
 
     // Analyze remaining viruses
     int max_height = ROWS;  // highest occupied row (lowest row number = highest stack)
@@ -27,7 +39,7 @@ static int evaluate_board(const PlayerBoard& b, int viruses_cleared, int remaini
 
             if (b.grid[r][c].virus) {
                 // Track viruses dangerously near the top (overflow = game over)
-                if (r <= 2) num_viruses_near_top++;
+                if (r <= VIRUS_NEAR_TOP_ROW) num_viruses_near_top++;
 
                 // Count same-color neighbors in same row (horizontal run potential)
                 int horiz_count = 1;  // count self
@@ -62,11 +74,11 @@ static int evaluate_board(const PlayerBoard& b, int viruses_cleared, int remaini
                 // Best run determines proximity to clearing
                 int best_run = std::max(horiz_count, vert_count);
                 if (best_run >= 4)
-                    virus_proximity_score += 5000;  // one more piece clears it
+                    virus_proximity_score += BONUS_ONE_PIECE_TO_CLEAR;
                 else if (best_run >= 3)
-                    virus_proximity_score += 1000;
+                    virus_proximity_score += BONUS_TWO_PIECES_TO_CLEAR;
                 else if (best_run >= 2)
-                    virus_proximity_score += 200;
+                    virus_proximity_score += BONUS_THREE_PIECES_TO_CLEAR;
             }
         }
     }
@@ -74,10 +86,10 @@ static int evaluate_board(const PlayerBoard& b, int viruses_cleared, int remaini
     score += virus_proximity_score;
 
     // Heavy penalty for viruses near overflow
-    score -= num_viruses_near_top * 50000;
+    score -= num_viruses_near_top * PENALTY_VIRUS_NEAR_TOP;
 
     // Moderate penalty for high board (max_height is the highest occupied row, lower = higher stack)
-    score -= (ROWS - max_height) * (ROWS - max_height) * 5;
+    score -= (ROWS - max_height) * (ROWS - max_height) * PENALTY_BOARD_HEIGHT_MULT;
 
     return score;
 }
