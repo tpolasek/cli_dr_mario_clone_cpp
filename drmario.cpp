@@ -19,14 +19,8 @@
 #include <sys/wait.h>
 #include <signal.h>
 
-
-
-
-// ======================  CONSTANTS  ======================
-const int BOT_INPUT_TICK_RATE = 10;
-const int GRAVITY_TICK_RATE = 20;
 // ====================== GAME STATE ======================
-static int GAME_FPS = 60;
+static int game_fps = GAME_FPS;
 
 struct Game {
     PlayerBoard player;
@@ -288,8 +282,8 @@ int main() {
         }
 
         // ====== APPLY MOVES ======
-        if (game.player.phase == Phase::PLAYING) apply_move(game.player, player_move);
-        if (game.bot.phase == Phase::PLAYING)     apply_move(game.bot, bot_move);
+        if (game.player.phase == Phase::PLAYING) game.player.apply_move(player_move);
+        if (game.bot.phase == Phase::PLAYING)     game.bot.apply_move(bot_move);
 
         // ====== PHASE PROCESSING ======
         process_phases(game.player, game.player_attacks, game.bot_attacks,
@@ -298,7 +292,7 @@ int main() {
                        bot_last_drop, bot_last_gravity, false);
         render();
         game.ticks++;
-        std::this_thread::sleep_for(std::chrono::milliseconds(((int)std::ceilf(1000.0/GAME_FPS))));
+        std::this_thread::sleep_for(std::chrono::milliseconds(((int)std::ceilf(1000.0/game_fps))));
     }
 
     // stop music (kill entire process group)
