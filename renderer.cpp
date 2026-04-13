@@ -1,94 +1,194 @@
 #include "renderer.h"
 #include <iostream>
-#include <vector>
 #include <string>
+#include <vector>
+#include <cstring>
 
+// ====================== BLOCK RENDERING CONFIG ======================
+// Each game cell is rendered as BW chars wide × BH terminal rows tall.
+// This gives a much larger, more visually appealing board.
+static constexpr int BW = 4;                       // chars per cell width
+static constexpr int BH = 2;                       // rows per cell height
+static constexpr int BOARD_CW = COLS * BW;         // 32 chars content width
+static constexpr int BOARD_CH = ROWS * BH;         // 32 rows content height
 // ====================== BOARD RENDERING ======================
 
-void render_board(const PlayerBoard& board, const char* label, int x_offset, bool show_controls, int attack_count, int anim_frame) {
-    struct CellView { std::string txt; };
+void render_board(const PlayerBoard& board, const char* label, int x_offset,
+                  bool show_controls, int attack_count, int anim_frame)
+{
+    // ---- Build cell view buffer ----
+    struct CellView { std::string rows[BH]; };
     std::vector<std::vector<CellView>> buf(ROWS, std::vector<CellView>(COLS));
 
-    const char* virus_char = (anim_frame & 32) ? "\u2742" : "\u2747";
+    // Virus animation: alternate between two star patterns
+    const bool vframe = (anim_frame & 32);
+    const char* vch = vframe ? "✦" : "✧";   // U+2726 / U+2727  (safe single-width)
 
-    for (int r = 0; r < ROWS; r++)
+    for (int r = 0; r < ROWS; r++) {
         for (int c = 0; c < COLS; c++) {
-            if (board.grid[r][c].color != EMPTY) {
-                if (board.grid[r][c].virus)
-                    buf[r][c].txt = std::string(dark_ansi(board.grid[r][c].color)) + virus_char + virus_char;
-                else
-                    buf[r][c].txt = std::string(clr_ansi(board.grid[r][c].color)) + "\u2588\u2588";
+            const Piece& p = board.grid[r][c];
+            if (p.color == EMPTY) {
+                // Empty: subtle dot grid
+                buf[r][c].rows[0] = "\033[90m····\033[0m";
+                buf[r][c].rows[1] = "\033[90m····\033[0m";
+            } else if (p.virus) {
+                // Virus: animated star pattern in color (distinct from solid capsules)
+                std::string vs = std::string(vch) + vch + vch + vch;
+                buf[r][c].rows[0] = std::string(clr_ansi(p.color)) + vs + "\033[0m";
+                buf[r][c].rows[1] = std::string(dark_ansi(p.color)) + vs + "\033[0m";
             } else {
-                buf[r][c].txt = "\033[90m ·\033[0m";
+                // Capsule piece: bright top / dark bottom = 3D bevel effect
+                buf[r][c].rows[0] = std::string(clr_ansi(p.color)) + "████\033[0m";
+                buf[r][c].rows[1] = std::string(dark_ansi(p.color)) + "████\033[0m";
             }
         }
+    }
 
+    // Overlay the active capsule (only during PLAYING phase)
     auto overlay = [&](int r, int c, int color) {
-        if (r >= 0 && r < ROWS && c >= 0 && c < COLS)
-            buf[r][c].txt = std::string(clr_ansi(color)) + "\u2588\u2588";
+        if (r >= 0 && r < ROWS && c >= 0 && c < COLS) {
+            buf[r][c].rows[0] = std::string(clr_ansi(color)) + "████\033[0m";
+            buf[r][c].rows[1] = std::string(dark_ansi(color)) + "████\033[0m";
+        }
     };
     if (board.phase == Phase::PLAYING) {
         overlay(board.cap.r1(), board.cap.c1(), board.cap.h1);
         overlay(board.cap.r2(), board.cap.c2(), board.cap.h2);
     }
 
-    std::cout << "\033[" << 4 << ";" << (x_offset + 1) << "H";
+    // ---- Layout ----
+    // Row 3 : label (centred above board)
+    // Row 4 : score · virus count · attack indicator
+    // Row 5 : next-piece preview
+    // Row 6 : ╔══...══╗  (top border)
+    // Rows 7–38 : grid (16 cells × 2 sub-rows = 32 terminal rows)
+    // Row 39 : ╚══...══╝  (bottom border)
+
+    const int label_row = 3;
+    const int info_row  = 4;
+    const int next_row  = 5;
+    const int top_row   = 6;
+
+    // Label (centred over the board)
+    int lbl_len = (int)std::strlen(label);
+    int lbl_x   = x_offset + 1 + (BOARD_CW - lbl_len) / 2;
+    std::cout << "\033[" << label_row << ";" << lbl_x << "H";
     std::cout << "\033[97;1m" << label << "\033[0m";
 
-    std::cout << "\033[" << 5 << ";" << x_offset << "H";
-    std::cout << "\033[90m  .----------------.\033[0m";
+    // Info line: score · virus · attack
+    std::cout << "\033[" << info_row << ";" << x_offset << "H";
+    std::cout << " \033[90mScore\033[0m " << board.score;
+    int rem = board.total_viruses - board.cleared_viruses;
+    std::cout << "  \033[90mVirus\033[0m " << rem << "/" << board.total_viruses;
+    if (attack_count > 0)
+        std::cout << "  \033[91;1m⚡" << attack_count << "\033[0m";
 
+    // Next-piece preview (rendered with same block style)
+    std::cout << "\033[" << next_row << ";" << x_offset << "H";
+    std::cout << " \033[90mNext\033[0m ";
+    std::cout << clr_ansi(board.nxt.h1) << "████" << "\033[0m";
+    std::cout << clr_ansi(board.nxt.h2) << "████" << "\033[0m";
+
+    // Top border
+    std::cout << "\033[" << top_row << ";" << x_offset << "H";
+    std::cout << "\033[90m╔";
+    for (int i = 0; i < BOARD_CW; i++) std::cout << "═";
+    std::cout << "╗\033[0m";
+
+    // Grid rows
     for (int r = 0; r < ROWS; r++) {
-        std::cout << "\033[" << (6 + r) << ";" << x_offset << "H";
-        std::cout << "\033[90m  |\033[0m";
-        for (int c = 0; c < COLS; c++)
-            std::cout << buf[r][c].txt;
-        std::cout << "\033[90m|\033[0m";
+        for (int s = 0; s < BH; s++) {
+            int term_row = top_row + 1 + r * BH + s;
+            std::cout << "\033[" << term_row << ";" << x_offset << "H";
+            std::cout << "\033[90m║\033[0m";
+            for (int c = 0; c < COLS; c++)
+                std::cout << buf[r][c].rows[s];
+            std::cout << "\033[90m║\033[0m";
 
-        // Info panel
-        if (r == 0)  std::cout << " \033[90mScore:\033[0m " << board.score;
-        if (r == 2)  std::cout << " \033[90mVirus:\033[0m "
-                               << (board.total_viruses - board.cleared_viruses)
-                               << "/" << board.total_viruses;
-        if (r == 4)  std::cout << " \033[90mNext:\033[0m "
-                               << clr_ansi(board.nxt.h1) << "\u2588\u2588"
-                               << clr_ansi(board.nxt.h2) << "\u2588\u2588\033[0m";
-        if (r == 7)  std::cout << " \033[90mAttack:\033[0m " << attack_count;
-
-        if (show_controls) {
-            if (r == 9)  std::cout << " \033[90mA/D  Move\033[0m";
-            if (r == 10) std::cout << " \033[90mW    Rotate\033[0m";
-            if (r == 11) std::cout << " \033[90mS    Drop\033[0m";
-            if (r == 12) std::cout << " \033[90mQ    Quit\033[0m";
+            // Side info panel (every other sub-row, on the second sub-row of select cells)
+            if (s == 1) {
+                int info_x = x_offset + BOARD_CW + 4;
+                if (r == 0) {
+                    std::cout << "\033[" << term_row << ";" << info_x << "H";
+                    std::cout << "\033[90mScore:\033[0m " << board.score;
+                }
+                if (r == 2) {
+                    std::cout << "\033[" << term_row << ";" << info_x << "H";
+                    std::cout << "\033[90mVirus:\033[0m " << rem << "/" << board.total_viruses;
+                }
+                if (r == 4) {
+                    std::cout << "\033[" << term_row << ";" << info_x << "H";
+                    std::cout << "\033[90mNext:\033[0m "
+                              << clr_ansi(board.nxt.h1) << "██\033[0m"
+                              << clr_ansi(board.nxt.h2) << "██\033[0m";
+                }
+                if (r == 7 && attack_count > 0) {
+                    std::cout << "\033[" << term_row << ";" << info_x << "H";
+                    std::cout << "\033[91;1mAttack: " << attack_count << "\033[0m";
+                }
+                if (show_controls) {
+                    if (r == 9) {
+                        std::cout << "\033[" << term_row << ";" << info_x << "H";
+                        std::cout << "\033[90mA/D  Move\033[0m";
+                    }
+                    if (r == 10) {
+                        std::cout << "\033[" << term_row << ";" << info_x << "H";
+                        std::cout << "\033[90mW    Rotate\033[0m";
+                    }
+                    if (r == 11) {
+                        std::cout << "\033[" << term_row << ";" << info_x << "H";
+                        std::cout << "\033[90mS    Drop\033[0m";
+                    }
+                    if (r == 12) {
+                        std::cout << "\033[" << term_row << ";" << info_x << "H";
+                        std::cout << "\033[90mQ    Quit\033[0m";
+                    }
+                }
+            }
         }
     }
 
-    std::cout << "\033[" << (6 + ROWS) << ";" << x_offset << "H";
-    std::cout << "\033[90m  '----------------'\033[0m";
+    // Bottom border
+    int bottom_row = top_row + 1 + BOARD_CH;
+    std::cout << "\033[" << bottom_row << ";" << x_offset << "H";
+    std::cout << "\033[90m╚";
+    for (int i = 0; i < BOARD_CW; i++) std::cout << "═";
+    std::cout << "╝\033[0m";
 }
 
 // ====================== GAME RENDERING ======================
 
 static const char* status_text(const PlayerBoard& player, const PlayerBoard& bot) {
-    if (player.game_over) return "\033[91;1m         YOU LOSE! Bot wins!\033[0m";
-    if (bot.game_over)    return "\033[92;1m         YOU WIN! Bot lost!\033[0m";
+    if (player.game_over) return "\033[91;1m           YOU LOSE!  Bot wins!\033[0m";
+    if (bot.game_over)    return "\033[92;1m           YOU WIN!   Bot lost!\033[0m";
     if (player.phase == Phase::GRAVITY || bot.phase == Phase::GRAVITY)
-        return "\033[96m                      Settling...\033[0m";
-    return "                      ";
+        return "\033[96m               Settling...\033[0m";
+    return "                                 ";
 }
 
 void render_game(const PlayerBoard& player, const PlayerBoard& bot,
                  int player_attacks, int bot_attacks, int& anim_frame) {
     anim_frame++;
     std::cout << "\033[2J\033[H";
-    std::cout << "\033[97;1m                    DR. MARIO — VS BOT\033[0m\n\n";
+    std::cout << "\033[97;1m                  DR. MARIO — VS BOT\033[0m";
 
+    // Board x positions: player at col 2, bot at col 40
     render_board(player, "PLAYER", 2, true, player_attacks, anim_frame);
-    render_board(bot, "  BOT", 38, false, bot_attacks, anim_frame);
+    render_board(bot,      "BOT",   40, false, bot_attacks, anim_frame);
 
-    int status_row = 6 + ROWS + 2;
+    // Status line below the boards
+    const int top_row    = 6;
+    const int bottom_row = top_row + 1 + BOARD_CH;
+    const int status_row = bottom_row + 2;
+
     std::cout << "\033[" << status_row << ";1H" << status_text(player, bot);
-    std::cout << "\033[" << (status_row + 2) << ";1H";
+
+    // Controls footer
+    std::cout << "\033[" << (status_row + 1) << ";1H";
+    std::cout << "\033[90m     A/D Move  ·  W Rotate  ·  S Drop  ·  Q Quit\033[0m";
+
+    // Park cursor out of the way
+    std::cout << "\033[" << (status_row + 3) << ";1H";
     std::cout.flush();
 }
 
