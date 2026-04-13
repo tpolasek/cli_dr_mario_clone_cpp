@@ -193,9 +193,9 @@ void render_game(const PlayerBoard& player, const PlayerBoard& bot,
     std::cout << "\033[2J\033[H";
     std::cout << "\033[97;1m                  DR. MARIO — VS BOT\033[0m";
 
-    // Board x positions: player at col 2, bot at col 40
+    // Board x positions: player at col 2, bot at col 50
     render_board(player, "PLAYER", 2, true, player_attacks, anim_frame);
-    render_board(bot,      "BOT",   40, false, bot_attacks, anim_frame);
+    render_board(bot,      "BOT",   50, false, bot_attacks, anim_frame);
 
     // Status line below the boards
     const int top_row    = 6;
