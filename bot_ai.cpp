@@ -1,236 +1,323 @@
 #include "bot_ai.h"
-#include <algorithm>
-#include <climits>
 
-// ====================== AI EVALUATION CONSTANTS ======================
+#include <array>
+#include <limits>
+#include <queue>
+
 namespace {
-    constexpr int WIN_SCORE               = 100000000;
-    constexpr int SCORE_VIRUS_MULTIPLIER  = 1000000;
-    constexpr int PENALTY_VIRUS_NEAR_TOP  = 50000;
-    constexpr int BONUS_ONE_PIECE_TO_CLEAR   = 5000;
-    constexpr int BONUS_TWO_PIECES_TO_CLEAR  = 1000;
-    constexpr int BONUS_THREE_PIECES_TO_CLEAR = 200;
-    constexpr int PENALTY_BOARD_HEIGHT_MULT  = 5;
-    constexpr int VIRUS_NEAR_TOP_ROW         = 2;
+
+struct SearchNode {
+    Capsule cap;
+    Move first_move = Move::NONE;
+    int steps = 0;
+};
+
+struct Candidate {
+    bool valid = false;
+    int score = std::numeric_limits<int>::min();
+    int viruses_cleared = 0;
+    int steps = 0;
+    int landing_row = -1;
+    Move next_move = Move::NONE;
+    Capsule landing{};
+};
+
+constexpr int WIN_SCORE = 500000000;
+constexpr int VIRUS_CLEAR_SCORE = 2500000;
+constexpr int REMAINING_VIRUS_PENALTY = 110000;
+constexpr int HOLE_PENALTY = 4200;
+constexpr int BURIED_VIRUS_PENALTY = 300;
+constexpr int ROUGHNESS_PENALTY = 140;
+constexpr int STACK_HEIGHT_PENALTY = 220;
+constexpr int DANGER_ZONE_PENALTY = 12000;
+constexpr int OFFSCREEN_LANDING_PENALTY = 350000;
+constexpr int TARGET_STABILITY_BONUS = 150;
+
+int row_slot(int row) {
+    return row + 1;
 }
 
-// ====================== EVALUATION ======================
+bool in_search_bounds(const Capsule& cap) {
+    return cap.r >= -1 && cap.r < ROWS &&
+           cap.c >= 0 && cap.c < COLS &&
+           cap.orient >= 0 && cap.orient < 4;
+}
 
-// Score a board position. Higher = better.
-static int evaluate_board(const PlayerBoard& b, int viruses_cleared, int remaining_viruses) {
-    // Win is always best
-    if (viruses_cleared >= remaining_viruses)
-        return WIN_SCORE;
+bool try_apply_move(const PlayerBoard& board, const Capsule& start, Move move, Capsule& out) {
+    out = start;
 
-    int score = 0;
+    switch (move) {
+    case Move::LEFT:
+        out.c--;
+        break;
+    case Move::RIGHT:
+        out.c++;
+        break;
+    case Move::DOWN:
+    case Move::DROP:
+        out.r++;
+        break;
+    case Move::ROTATE:
+        out.rotate();
+        if (board.fits(out)) return true;
 
-    // Primary: viruses cleared this move (including cascades)
-    score += viruses_cleared * SCORE_VIRUS_MULTIPLIER;
+        out = start;
+        out.c--;
+        out.rotate();
+        if (board.fits(out)) return true;
 
-    // Analyze remaining viruses
-    int max_height = ROWS;  // highest occupied row (lowest row number = highest stack)
-    int virus_proximity_score = 0;
-    int num_viruses_near_top = 0;
+        out = start;
+        out.c++;
+        out.rotate();
+        if (board.fits(out)) return true;
+
+        out = start;
+        out.r--;
+        out.rotate();
+        if (board.fits(out)) return true;
+
+        return false;
+    default:
+        return false;
+    }
+
+    return board.fits(out);
+}
+
+Capsule drop_to_rest(const PlayerBoard& board, Capsule cap) {
+    while (true) {
+        Capsule next = cap;
+        next.r++;
+        if (!board.fits(next)) return cap;
+        cap = next;
+    }
+}
+
+int line_setup_score(const PlayerBoard& board, int r, int c, int dr, int dc) {
+    const int color = board.grid[r][c].color;
+    int run = 1;
+    int open_ends = 0;
+
+    int rr = r - dr;
+    int cc = c - dc;
+    while (rr >= 0 && rr < ROWS && cc >= 0 && cc < COLS &&
+           board.grid[rr][cc].color == color) {
+        run++;
+        rr -= dr;
+        cc -= dc;
+    }
+    if (rr >= 0 && rr < ROWS && cc >= 0 && cc < COLS &&
+        board.grid[rr][cc].color == EMPTY) {
+        open_ends++;
+    }
+
+    rr = r + dr;
+    cc = c + dc;
+    while (rr >= 0 && rr < ROWS && cc >= 0 && cc < COLS &&
+           board.grid[rr][cc].color == color) {
+        run++;
+        rr += dr;
+        cc += dc;
+    }
+    if (rr >= 0 && rr < ROWS && cc >= 0 && cc < COLS &&
+        board.grid[rr][cc].color == EMPTY) {
+        open_ends++;
+    }
+
+    if (open_ends == 0) return 0;
+    if (run >= 3) return 3400 + open_ends * 400;
+    if (run == 2) return 1100 + open_ends * 200;
+    return 150 * open_ends;
+}
+
+int evaluate_board(const PlayerBoard& board, int viruses_cleared, const Capsule& landing, const BotState& state) {
+    const int remaining_viruses = board.total_viruses - board.cleared_viruses;
+    if (remaining_viruses <= 0) return WIN_SCORE;
+
+    int score = viruses_cleared * VIRUS_CLEAR_SCORE;
+    score -= remaining_viruses * REMAINING_VIRUS_PENALTY;
+
+    std::array<int, COLS> heights{};
+    int topmost_filled = ROWS;
+    int holes = 0;
+    int roughness = 0;
+    int buried_virus_cells = 0;
+    int setup_score = 0;
+    int danger_score = 0;
+
+    for (int c = 0; c < COLS; c++) {
+        bool seen_filled = false;
+        int first_filled = ROWS;
+
+        for (int r = 0; r < ROWS; r++) {
+            const Piece& cell = board.grid[r][c];
+            if (cell.color != EMPTY) {
+                seen_filled = true;
+                if (first_filled == ROWS) first_filled = r;
+                if (r < topmost_filled) topmost_filled = r;
+            } else if (seen_filled) {
+                holes++;
+            }
+        }
+
+        heights[c] = (first_filled == ROWS) ? 0 : (ROWS - first_filled);
+    }
+
+    for (int c = 1; c < COLS; c++) {
+        roughness += std::abs(heights[c] - heights[c - 1]);
+    }
 
     for (int r = 0; r < ROWS; r++) {
         for (int c = 0; c < COLS; c++) {
-            if (b.grid[r][c].color != EMPTY && r < max_height)
-                max_height = r;
+            const Piece& cell = board.grid[r][c];
+            if (!cell.virus) continue;
 
-            if (b.grid[r][c].virus) {
-                // Track viruses dangerously near the top (overflow = game over)
-                if (r <= VIRUS_NEAR_TOP_ROW) num_viruses_near_top++;
+            int blocks_above = 0;
+            for (int rr = 0; rr < r; rr++) {
+                if (board.grid[rr][c].color != EMPTY) {
+                    blocks_above++;
+                }
+            }
+            buried_virus_cells += blocks_above;
 
-                // Count same-color neighbors in same row (horizontal run potential)
-                int horiz_count = 1;  // count self
-                for (int dc = -1; c + dc >= 0; dc--) {
-                    if (b.grid[r][c + dc].color == b.grid[r][c].color)
-                        horiz_count++;
-                    else
-                        break;
-                }
-                for (int dc = 1; c + dc < COLS; dc++) {
-                    if (b.grid[r][c + dc].color == b.grid[r][c].color)
-                        horiz_count++;
-                    else
-                        break;
-                }
+            const int best_axis = std::max(
+                line_setup_score(board, r, c, 0, 1),
+                line_setup_score(board, r, c, 1, 0)
+            );
+            setup_score += best_axis;
 
-                // Count same-color neighbors in same column (vertical run potential)
-                int vert_count = 1;  // count self
-                for (int dr = -1; r + dr >= 0; dr--) {
-                    if (b.grid[r + dr][c].color == b.grid[r][c].color)
-                        vert_count++;
-                    else
-                        break;
-                }
-                for (int dr = 1; r + dr < ROWS; dr++) {
-                    if (b.grid[r + dr][c].color == b.grid[r][c].color)
-                        vert_count++;
-                    else
-                        break;
-                }
-
-                // Best run determines proximity to clearing
-                int best_run = std::max(horiz_count, vert_count);
-                if (best_run >= 4)
-                    virus_proximity_score += BONUS_ONE_PIECE_TO_CLEAR;
-                else if (best_run >= 3)
-                    virus_proximity_score += BONUS_TWO_PIECES_TO_CLEAR;
-                else if (best_run >= 2)
-                    virus_proximity_score += BONUS_THREE_PIECES_TO_CLEAR;
+            if (r < VIRUS_FREE_ROWS) {
+                const int danger = VIRUS_FREE_ROWS - r;
+                danger_score += danger * danger;
             }
         }
     }
 
-    score += virus_proximity_score;
+    if (topmost_filled < ROWS) {
+        const int stack_height = ROWS - topmost_filled;
+        score -= stack_height * stack_height * STACK_HEIGHT_PENALTY;
+    }
 
-    // Heavy penalty for viruses near overflow
-    score -= num_viruses_near_top * PENALTY_VIRUS_NEAR_TOP;
+    score -= holes * HOLE_PENALTY;
+    score -= buried_virus_cells * BURIED_VIRUS_PENALTY;
+    score -= roughness * ROUGHNESS_PENALTY;
+    score -= danger_score * DANGER_ZONE_PENALTY;
+    score += setup_score;
 
-    // Moderate penalty for high board (max_height is the highest occupied row, lower = higher stack)
-    score -= (ROWS - max_height) * (ROWS - max_height) * PENALTY_BOARD_HEIGHT_MULT;
+    if (landing.r1() < 0 || landing.r2() < 0) {
+        score -= OFFSCREEN_LANDING_PENALTY;
+    }
+
+    if (state.moving_to_target &&
+        state.target_col == landing.c &&
+        state.target_orient == landing.orient) {
+        score += TARGET_STABILITY_BONUS;
+    }
 
     return score;
 }
 
-// ====================== PLACEMENT SIMULATION ======================
+Candidate simulate_candidate(const PlayerBoard& board, const SearchNode& node, const BotState& state) {
+    Candidate candidate;
+    candidate.valid = true;
+    candidate.steps = node.steps;
+    candidate.landing = drop_to_rest(board, node.cap);
+    candidate.landing_row = std::max(candidate.landing.r1(), candidate.landing.r2());
 
-struct Placement {
-    int col;
-    int orient;      // 0=right 1=up 2=left 3=down
-    int score;
-    int drop_row;
-};
-
-// Simulate dropping a capsule from the top of a column in a given orientation.
-// Returns the row where the bottom of the capsule comes to rest, or -1 if invalid.
-static int simulate_drop(const PlayerBoard& b, int col, int orient, int h1, int h2) {
-    // Start from row 0 or row 1 depending on orientation (up needs row >= 1)
-    int start_r = (orient & 1) ? 1 : 0;
-
-    for (int r = start_r; r < ROWS + 2; r++) {
-        Capsule c;
-        c.r = r; c.c = col; c.h1 = h1; c.h2 = h2; c.orient = orient;
-        if (!b.fits(c)) {
-            r--;
-            if (r < start_r) return -1;
-            return r;
-        }
+    Move next_move = node.first_move;
+    if (next_move == Move::NONE) {
+        Capsule down;
+        next_move = try_apply_move(board, node.cap, Move::DROP, down) ? Move::DROP : Move::NONE;
     }
-    return -1;
+    candidate.next_move = next_move;
+
+    PlayerBoard simulation = board;
+    const int cleared_before = simulation.cleared_viruses;
+    simulation.stamp(candidate.landing);
+    simulation.simulate_cascade();
+    candidate.viruses_cleared = simulation.cleared_viruses - cleared_before;
+    candidate.score = evaluate_board(simulation, candidate.viruses_cleared, candidate.landing, state);
+
+    return candidate;
 }
 
-// ====================== MAIN BOT AI ======================
+bool better_candidate(const Candidate& lhs, const Candidate& rhs) {
+    if (!rhs.valid) return lhs.valid;
+    if (!lhs.valid) return false;
+    if (lhs.score != rhs.score) return lhs.score > rhs.score;
+    if (lhs.viruses_cleared != rhs.viruses_cleared) return lhs.viruses_cleared > rhs.viruses_cleared;
+    if (lhs.steps != rhs.steps) return lhs.steps < rhs.steps;
+    if (lhs.landing_row != rhs.landing_row) return lhs.landing_row > rhs.landing_row;
+
+    const int lhs_center = std::abs(lhs.landing.c - (COLS / 2));
+    const int rhs_center = std::abs(rhs.landing.c - (COLS / 2));
+    if (lhs_center != rhs_center) return lhs_center < rhs_center;
+
+    return static_cast<int>(lhs.next_move) < static_cast<int>(rhs.next_move);
+}
+
+}  // namespace
 
 Move get_bot_move(const PlayerBoard& board, BotState& state) {
-    if (board.phase != Phase::PLAYING) return Move::NONE;
+    if (board.phase != Phase::PLAYING) {
+        state.moving_to_target = false;
+        return Move::NONE;
+    }
 
-    // If we already have a target and are still moving toward it, continue
-    if (state.moving_to_target) {
-        // Check if we've reached the target
-        if (board.cap.c == state.target_col && board.cap.orient == state.target_orient) {
-            state.moving_to_target = false;
-            return Move::DROP;
-        }
-    } else {
-        // Find the best placement by trying all columns and orientations
-        int h1 = board.cap.h1;
-        int h2 = board.cap.h2;
-        int remaining_viruses = board.total_viruses - board.cleared_viruses;
+    if (!in_search_bounds(board.cap)) {
+        state.moving_to_target = false;
+        return Move::NONE;
+    }
 
-        Placement best = { -1, -1, INT_MIN, 0 };
+    constexpr std::array<Move, 4> kSearchMoves = {
+        Move::LEFT, Move::RIGHT, Move::ROTATE, Move::DROP
+    };
 
-        // Try all 4 orientations (not just 2!)
-        for (int orient = 0; orient < 4; orient++) {
-            for (int col = 0; col < COLS; col++) {
-                int drop_r = simulate_drop(board, col, orient, h1, h2);
-                if (drop_r < 0) continue;
+    bool visited[ROWS + 1][COLS][4] = {};
+    std::queue<SearchNode> queue;
 
-                // Get final position
-                Capsule c;
-                c.r = drop_r; c.c = col; c.h1 = h1; c.h2 = h2; c.orient = orient;
+    queue.push({board.cap, Move::NONE, 0});
+    visited[row_slot(board.cap.r)][board.cap.c][board.cap.orient] = true;
 
-                // Skip dead positions (piece lands at row 0 = immediate game over)
-                if (c.r1() <= 0 || c.r2() <= 0) continue;
+    Candidate best;
 
-                // Simulate placement on a cloned board
-                PlayerBoard sim;
-                sim.clone_grid(board);
-                sim.next_cap_id = board.next_cap_id;
-                sim.cleared_viruses = board.cleared_viruses;
-                sim.stamp(c);
+    while (!queue.empty()) {
+        const SearchNode current = queue.front();
+        queue.pop();
 
-                // Simulate cascades
-                int vc = sim.simulate_cascade();
-                int sc = evaluate_board(sim, vc, remaining_viruses);
-
-                if (sc > best.score) {
-                    best.col = col;
-                    best.orient = orient;
-                    best.score = sc;
-                    best.drop_row = drop_r;
-                }
-            }
+        const Candidate candidate = simulate_candidate(board, current, state);
+        if (better_candidate(candidate, best)) {
+            best = candidate;
         }
 
-        if (best.col < 0) {
-            // No valid placement found (board is nearly full), try to survive
-            state.target_col = board.cap.c;
-            state.target_orient = board.cap.orient;
-        } else {
-            state.target_col = best.col;
-            state.target_orient = best.orient;
+        for (Move move : kSearchMoves) {
+            Capsule next_cap;
+            if (!try_apply_move(board, current.cap, move, next_cap)) continue;
+            if (!in_search_bounds(next_cap)) continue;
+
+            const int row = row_slot(next_cap.r);
+            if (visited[row][next_cap.c][next_cap.orient]) continue;
+
+            visited[row][next_cap.c][next_cap.orient] = true;
+            queue.push({
+                next_cap,
+                current.first_move == Move::NONE ? move : current.first_move,
+                current.steps + 1
+            });
         }
-        state.moving_to_target = true;
     }
 
-    // Movement toward target
-    // Priority: rotate to reach target orientation, then move horizontally
+    if (!best.valid) {
+        state.target_col = board.cap.c;
+        state.target_orient = board.cap.orient;
+        state.moving_to_target = false;
 
-    if (board.cap.orient != state.target_orient) {
-        // Try rotating to reach target orientation
-        // rotate() cycles: 0->1, 1->0, 2->3, 3->2 (with color swap on horizontal->vertical)
-        // From any orient, we can reach any other via at most 3 rotations with wall kicks
-
-        // Try single rotation first
-        Capsule t = board.cap;
-        t.rotate();
-        if (board.fits(t)) return Move::ROTATE;
-
-        // Try wall kicks
-        t = board.cap; t.c--; t.rotate();
-        if (board.fits(t)) { state.target_col = board.cap.c - 1; return Move::LEFT; }
-
-        t = board.cap; t.c++; t.rotate();
-        if (board.fits(t)) { state.target_col = board.cap.c + 1; return Move::RIGHT; }
-
-        // If we can't rotate, we may need to move horizontally first to get space
+        Capsule down;
+        return try_apply_move(board, board.cap, Move::DROP, down) ? Move::DROP : Move::NONE;
     }
 
-    // Move horizontally toward target column
-    if (board.cap.c < state.target_col) {
-        Capsule t = board.cap; t.c++;
-        if (board.fits(t)) return Move::RIGHT;
-    } else if (board.cap.c > state.target_col) {
-        Capsule t = board.cap; t.c--;
-        if (board.fits(t)) return Move::LEFT;
-    }
-
-    // At target column but wrong orientation - try rotation with wall kicks again
-    if (board.cap.orient != state.target_orient) {
-        Capsule t = board.cap;
-        t.rotate();
-        if (board.fits(t)) return Move::ROTATE;
-
-        t = board.cap; t.c--; t.rotate();
-        if (board.fits(t)) return Move::LEFT;
-
-        t = board.cap; t.c++; t.rotate();
-        if (board.fits(t)) return Move::RIGHT;
-    }
-
-    // Can't reach target orientation at this column - drop here
-    state.moving_to_target = false;
-    return Move::DROP;
+    state.target_col = best.landing.c;
+    state.target_orient = best.landing.orient;
+    state.moving_to_target = best.next_move != Move::NONE && best.next_move != Move::DROP;
+    return best.next_move;
 }
