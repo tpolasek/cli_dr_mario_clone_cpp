@@ -21,6 +21,12 @@
 #include <signal.h>
 
 // ====================== GAME STATE ======================
+static volatile sig_atomic_t quit_requested = 0;
+
+static void sigint_handler(int) {
+    quit_requested = 1;
+}
+
 static int game_fps = GAME_FPS;
 
 struct Game {
@@ -167,6 +173,8 @@ bool process_phases(PlayerBoard& board, std::queue<int>& my_attacks, std::queue<
 int main() {
     std::srand(static_cast<unsigned>(std::time(nullptr)));
 
+    signal(SIGINT, sigint_handler);
+
     enable_raw_mode();
     render_enter_alt_screen();
 
@@ -174,6 +182,7 @@ int main() {
     auto select_option = [](std::initializer_list<std::pair<char, int>> options, int& result) -> bool {
         result = 0;
         while (result == 0) {
+            if (quit_requested) return false;
             int ch = poll_key();
             if (ch == 'q' || ch == 'Q') return false;
             for (auto& [key, val] : options)
@@ -230,7 +239,7 @@ int main() {
     int bot_last_move = 0;
 
     // ---- game loop ----
-    while (!(game.player.game_over || game.player.game_won || game.bot.game_won || game.bot.game_over)) {
+    while (!(game.player.game_over || game.player.game_won || game.bot.game_won || game.bot.game_over || quit_requested)) {
         // ====== GATHER INPUTS ======
         Move player_move = Move::NONE;
         if (game.player.phase == Phase::PLAYING) {
@@ -266,7 +275,7 @@ int main() {
 
     render_game(game.player, game.bot, game.player_attacks.size(), game.bot_attacks.size(), game.anim_frame);
     std::cout << "\nPress 'q' to exit...\n";
-    while (poll_key() != 'q') {
+    while (poll_key() != 'q' && !quit_requested) {
         input_sleep();
     }
     return 0;
