@@ -51,16 +51,16 @@ void render_board(const PlayerBoard& board, const char* label, int x_offset,
                 buf[r][c].rows[0] = "\033[90m····\033[0m";
                 buf[r][c].rows[1] = "\033[90m····\033[0m";
             } else if (p.virus) {
-                // Virus: solid background-color fill (animated between dark/bright)
+                // Virus: diagonal shading — TL/BR dark, TR/BL bright, with flash
                 const bool flash = (anim_frame & 32);
-                buf[r][c].rows[0] = std::string(flash ? virus_bright_bg(p.color) : virus_dark_bg(p.color))
-                                  + "    " + "\033[0m";
-                buf[r][c].rows[1] = std::string(flash ? virus_dark_bg(p.color) : virus_bright_bg(p.color))
-                                  + "    " + "\033[0m";
+                const char* d = flash ? virus_dark_bg(p.color) : virus_bright_bg(p.color);
+                const char* b = flash ? virus_bright_bg(p.color) : virus_dark_bg(p.color);
+                buf[r][c].rows[0] = std::string(d) + "  " + std::string(b) + "  " + "\033[0m";
+                buf[r][c].rows[1] = std::string(b) + "  " + std::string(d) + "  " + "\033[0m";
             } else {
-                // Capsule piece: bright top / dark bottom = 3D bevel effect
-                buf[r][c].rows[0] = std::string(clr_ansi(p.color)) + "████\033[0m";
-                buf[r][c].rows[1] = std::string(dark_ansi(p.color)) + "████\033[0m";
+                // Capsule piece: uniform bright fill (no shading)
+                buf[r][c].rows[0] = std::string(virus_bright_bg(p.color)) + "    " + "\033[0m";
+                buf[r][c].rows[1] = std::string(virus_bright_bg(p.color)) + "    " + "\033[0m";
             }
         }
     }
@@ -68,8 +68,8 @@ void render_board(const PlayerBoard& board, const char* label, int x_offset,
     // Overlay the active capsule (only during PLAYING phase)
     auto overlay = [&](int r, int c, int color) {
         if (r >= 0 && r < ROWS && c >= 0 && c < COLS) {
-            buf[r][c].rows[0] = std::string(clr_ansi(color)) + "████\033[0m";
-            buf[r][c].rows[1] = std::string(dark_ansi(color)) + "████\033[0m";
+            buf[r][c].rows[0] = std::string(virus_bright_bg(color)) + "    " + "\033[0m";
+            buf[r][c].rows[1] = std::string(virus_bright_bg(color)) + "    " + "\033[0m";
         }
     };
     if (board.phase == Phase::PLAYING) {
