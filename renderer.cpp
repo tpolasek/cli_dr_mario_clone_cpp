@@ -11,6 +11,29 @@ static constexpr int BW = 4;                       // chars per cell width
 static constexpr int BH = 2;                       // rows per cell height
 static constexpr int BOARD_CW = COLS * BW;         // 32 chars content width
 static constexpr int BOARD_CH = ROWS * BH;         // 32 rows content height
+
+// ====================== VIRUS BACKGROUND COLORS ======================
+// Viruses render with ANSI background-color fills (no gaps) instead of
+// foreground characters, making them instantly distinguishable from capsules.
+
+inline const char* virus_bright_bg(int c) {
+    switch (c) {
+        case RED:    return "\033[101m";   // bright red bg
+        case YELLOW: return "\033[103m";   // bright yellow bg
+        case BLUE:   return "\033[104m";   // bright blue bg
+        default:     return "\033[0m";
+    }
+}
+
+inline const char* virus_dark_bg(int c) {
+    switch (c) {
+        case RED:    return "\033[41m";    // dark red bg
+        case YELLOW: return "\033[43m";    // dark yellow bg
+        case BLUE:   return "\033[44m";    // dark blue bg
+        default:     return "\033[0m";
+    }
+}
+
 // ====================== BOARD RENDERING ======================
 
 void render_board(const PlayerBoard& board, const char* label, int x_offset,
@@ -20,10 +43,6 @@ void render_board(const PlayerBoard& board, const char* label, int x_offset,
     struct CellView { std::string rows[BH]; };
     std::vector<std::vector<CellView>> buf(ROWS, std::vector<CellView>(COLS));
 
-    // Virus animation: alternate between two star patterns
-    const bool vframe = (anim_frame & 32);
-    const char* vch = vframe ? "✦" : "✧";   // U+2726 / U+2727  (safe single-width)
-
     for (int r = 0; r < ROWS; r++) {
         for (int c = 0; c < COLS; c++) {
             const Piece& p = board.grid[r][c];
@@ -32,10 +51,12 @@ void render_board(const PlayerBoard& board, const char* label, int x_offset,
                 buf[r][c].rows[0] = "\033[90m····\033[0m";
                 buf[r][c].rows[1] = "\033[90m····\033[0m";
             } else if (p.virus) {
-                // Virus: animated star pattern in color (distinct from solid capsules)
-                std::string vs = std::string(vch) + vch + vch + vch;
-                buf[r][c].rows[0] = std::string(clr_ansi(p.color)) + vs + "\033[0m";
-                buf[r][c].rows[1] = std::string(dark_ansi(p.color)) + vs + "\033[0m";
+                // Virus: solid background-color fill (animated between dark/bright)
+                const bool flash = (anim_frame & 32);
+                buf[r][c].rows[0] = std::string(flash ? virus_bright_bg(p.color) : virus_dark_bg(p.color))
+                                  + "    " + "\033[0m";
+                buf[r][c].rows[1] = std::string(flash ? virus_dark_bg(p.color) : virus_bright_bg(p.color))
+                                  + "    " + "\033[0m";
             } else {
                 // Capsule piece: bright top / dark bottom = 3D bevel effect
                 buf[r][c].rows[0] = std::string(clr_ansi(p.color)) + "████\033[0m";
