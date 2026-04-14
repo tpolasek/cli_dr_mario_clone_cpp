@@ -6,8 +6,8 @@
  */
 
 #include "board.h"
-#include "bot_ai.h"         // pulls in bot_registry.h
-#include "bot_random.h"
+#include "bot/bot_ai.h"
+#include "bot/bot_random.h"
 #include "terminal_io.h"
 #include "renderer.h"
 

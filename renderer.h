@@ -1,7 +1,7 @@
 #pragma once
 
 #include "board.h"
-#include "bot_registry.h"
+#include "bot/bot_registry.h"
 
 // ====================== ANSI HELPERS ======================
 

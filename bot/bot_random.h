@@ -1,6 +1,6 @@
 #pragma once
 
-#include "bot_registry.h"
+#include "bot/bot_registry.h"
 
 class RandomBot : public Bot {
 public:

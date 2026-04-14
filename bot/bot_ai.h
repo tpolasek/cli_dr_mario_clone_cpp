@@ -1,6 +1,6 @@
 #pragma once
 
-#include "bot_registry.h"
+#include "bot/bot_registry.h"
 
 // ====================== LEGACY API ======================
 // Still available for direct use, but prefer BfsBot via the registry.
