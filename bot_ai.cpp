@@ -517,3 +517,20 @@ Move get_bot_move(const PlayerBoard& board, BotState& state) {
     state.moving_to_target = best.next_move != Move::NONE && best.next_move != Move::DROP;
     return best.next_move;
 }
+
+// ====================== BfsBot (registry-compatible wrapper) ======================
+
+Move BfsBot::get_move(const PlayerBoard& board) {
+    return get_bot_move(board, state_);
+}
+
+// ====================== SELF-REGISTRATION ======================
+
+static bool bfs_bot_registered = [] {
+    BotRegistry::instance().register_bot(
+        "bfs",
+        "BFS lookahead with virus-aware scoring",
+        []() -> std::unique_ptr<Bot> { return std::make_unique<BfsBot>(); }
+    );
+    return true;
+}();

@@ -1,12 +1,13 @@
 /*
  * Dr. Mario Clone — Terminal Edition (2-Player vs Bot)
  * Compile: make
- * Run:     ./drmario
+ * Run:     ./drmario [--bot <name>]
  * Controls: A/D = Move, S = Drop, W = Rotate, Q = Quit
  */
 
 #include "board.h"
-#include "bot_ai.h"
+#include "bot_ai.h"         // pulls in bot_registry.h
+#include "bot_random.h"
 #include "terminal_io.h"
 #include "renderer.h"
 
@@ -33,9 +34,9 @@ static int game_fps = GAME_FPS;
 struct Game {
     PlayerBoard player;
     PlayerBoard bot;
-    BotState bot_state;
-    std::queue<int> player_attacks; // attacks TO player (from bot)
-    std::queue<int> bot_attacks;    // attacks TO bot (from player)
+    std::unique_ptr<Bot> bot_ai;       // polymorphic bot
+    std::queue<int> player_attacks;    // attacks TO player (from bot)
+    std::queue<int> bot_attacks;       // attacks TO bot (from player)
     float drop_speed = 24;
     int ticks = 0;
     int anim_frame = 0;
@@ -167,12 +168,42 @@ bool process_phases(PlayerBoard& board, std::queue<int>& my_attacks, std::queue<
     return false;
 }
 
+// ====================== CLI ARGUMENTS ======================
 
+static void print_usage(const char* prog) {
+    std::cerr << "Usage: " << prog << " [--bot <name>]\n"
+              << "\nAvailable bots:\n";
+    for (const auto& entry : BotRegistry::instance().list()) {
+        std::cerr << "  " << entry.name << " — " << entry.description << "\n";
+    }
+}
+
+// Parse --bot <name> from argv. Returns the bot name or empty string if not specified.
+static std::string parse_bot_arg(int argc, char* argv[]) {
+    for (int i = 1; i < argc; i++) {
+        if (std::string(argv[i]) == "--bot" && i + 1 < argc) {
+            return argv[i + 1];
+        }
+        if (std::string(argv[i]) == "--help" || std::string(argv[i]) == "-h") {
+            print_usage(argv[0]);
+            std::exit(0);
+        }
+    }
+    return "";
+}
 
 // ====================== MAIN ======================
 
-int main() {
+int main(int argc, char* argv[]) {
     std::srand(static_cast<unsigned>(std::time(nullptr)));
+
+    // ---- parse CLI before entering raw mode ----
+    std::string cli_bot = parse_bot_arg(argc, argv);
+    if (!cli_bot.empty() && !BotRegistry::instance().has(cli_bot)) {
+        std::cerr << "Unknown bot: " << cli_bot << "\n";
+        print_usage(argv[0]);
+        return 1;
+    }
 
     signal(SIGINT, sigint_handler);
 
@@ -211,6 +242,40 @@ int main() {
         return 0;
     }
     game.drop_speed = drop_speed_int;
+
+    // ---- bot selection ----
+    std::string bot_name = cli_bot;  // prefer CLI override
+
+    if (bot_name.empty()) {
+        // Interactive bot menu
+        const auto& bots = BotRegistry::instance().list();
+        render_bot_menu(bots);
+
+        int bot_index = -1;
+        while (bot_index < 0) {
+            if (quit_requested) {
+                render_clear_screen();
+                return 0;
+            }
+            int ch = poll_key();
+            if (ch == 'q' || ch == 'Q') {
+                render_clear_screen();
+                return 0;
+            }
+            if (ch >= '1' && ch <= static_cast<char>('0' + (int)bots.size())) {
+                bot_index = ch - '1';
+            }
+            if (bot_index < 0)
+                input_sleep();
+        }
+        bot_name = bots[bot_index].name;
+    }
+
+    game.bot_ai = BotRegistry::instance().create(bot_name);
+    if (!game.bot_ai) {
+        std::cerr << "Failed to create bot: " << bot_name << "\n";
+        return 1;
+    }
 
     // ---- start music ----
     if (access("queque.mp3", F_OK) == 0) {
@@ -262,7 +327,7 @@ int main() {
         Move bot_move = Move::NONE;
         if (game.bot.phase == Phase::PLAYING && ((game.ticks - bot_last_move) >= BOT_INPUT_TICK_RATE)) {
             bot_last_move = game.ticks;
-            bot_move = get_bot_move(game.bot, game.bot_state);
+            bot_move = game.bot_ai->get_move(game.bot);
         }
 
         // ====== APPLY MOVES ======

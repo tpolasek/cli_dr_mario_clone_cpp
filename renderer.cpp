@@ -244,3 +244,14 @@ void render_speed_menu() {
               << "      \033[93m[3]\033[0m  High\n\n    > ";
     std::cout.flush();
 }
+
+void render_bot_menu(const std::vector<BotEntry>& bots) {
+    std::cout << "\n    Select bot opponent:\n";
+    for (size_t i = 0; i < bots.size(); i++) {
+        std::cout << "      \033[93m[" << (i + 1) << "]\033[0m  "
+                  << bots[i].name
+                  << " \033[90m— " << bots[i].description << "\033[0m\n";
+    }
+    std::cout << "\n    > ";
+    std::cout.flush();
+}

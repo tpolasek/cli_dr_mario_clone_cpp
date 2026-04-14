@@ -1,6 +1,7 @@
 #pragma once
 
 #include "board.h"
+#include "bot_registry.h"
 
 // ====================== ANSI HELPERS ======================
 
@@ -39,3 +40,4 @@ void render_clear_screen();
 void render_title();
 void render_virus_menu();
 void render_speed_menu();
+void render_bot_menu(const std::vector<BotEntry>& bots);

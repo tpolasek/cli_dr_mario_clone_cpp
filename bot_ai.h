@@ -1,13 +1,24 @@
 #pragma once
 
-#include "board.h"
+#include "bot_registry.h"
 
-// Persistent state for bot AI decision-making across calls.
+// ====================== LEGACY API ======================
+// Still available for direct use, but prefer BfsBot via the registry.
+
 struct BotState {
     int target_col = -1;
     int target_orient = -1;
     bool moving_to_target = false;
 };
 
-// Decide the next move for the bot. Does not modify the board.
 Move get_bot_move(const PlayerBoard& board, BotState& state);
+
+// ====================== BFS BOT (registry-compatible) ======================
+
+class BfsBot : public Bot {
+public:
+    Move get_move(const PlayerBoard& board) override;
+    void reset() override { state_ = {}; }
+private:
+    BotState state_;
+};
