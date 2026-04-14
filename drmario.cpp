@@ -17,6 +17,7 @@
 #include <chrono>
 #include <thread>
 #include <unistd.h>
+#include <fcntl.h>
 #include <sys/wait.h>
 #include <signal.h>
 
@@ -219,6 +220,12 @@ int main() {
             while (true) {
                 pid_t p = fork();
                 if (p == 0) {
+                    int null_fd = open("/dev/null", O_WRONLY);
+                    if (null_fd >= 0) {
+                        dup2(null_fd, STDOUT_FILENO);
+                        dup2(null_fd, STDERR_FILENO);
+                        close(null_fd);
+                    }
                     execlp("afplay", "afplay", "queque.mp3", nullptr);
                     _exit(1);
                 }
@@ -264,7 +271,11 @@ int main() {
                        player_last_drop, player_last_gravity, true);
         process_phases(game.bot, game.bot_attacks, game.player_attacks,
                        bot_last_drop, bot_last_gravity, false);
-        render_game(game.player, game.bot, game.player_attacks.size(), game.bot_attacks.size(), game.anim_frame);
+
+        if(game.ticks % 3 == 0){
+            // Render 1/3 the game fps
+            render_game(game.player, game.bot, game.player_attacks.size(), game.bot_attacks.size(), game.anim_frame);
+        }
         game.ticks++;
 
         std::this_thread::sleep_for(std::chrono::milliseconds(((int)std::ceilf(1000.0/game_fps))));
