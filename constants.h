@@ -26,3 +26,4 @@ constexpr unsigned int RNG_MASK = 0x7FFFu;
 constexpr int BOT_INPUT_TICK_RATE = 10;
 constexpr int GRAVITY_TICK_RATE   = 20;
 constexpr int GAME_FPS            = 60;
+constexpr int RENDER_FPS          = 20;

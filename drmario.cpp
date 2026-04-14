@@ -246,6 +246,9 @@ int main() {
     int bot_last_move = 0;
 
     // ---- game loop ----
+    const auto render_interval = std::chrono::milliseconds(1000 / RENDER_FPS);
+    auto last_render_time = Clock::now();
+
     while (!(game.player.game_over || game.player.game_won || game.bot.game_won || game.bot.game_over || quit_requested)) {
         // ====== GATHER INPUTS ======
         Move player_move = Move::NONE;
@@ -272,10 +275,13 @@ int main() {
         process_phases(game.bot, game.bot_attacks, game.player_attacks,
                        bot_last_drop, bot_last_gravity, false);
 
-        if(game.ticks % 3 == 0){
-            // Render 1/3 the game fps
+        // ====== RENDER ======
+        auto now = Clock::now();
+        if (now - last_render_time >= render_interval) {
             render_game(game.player, game.bot, game.player_attacks.size(), game.bot_attacks.size(), game.anim_frame);
+            last_render_time = now;
         }
+
         game.ticks++;
 
         std::this_thread::sleep_for(std::chrono::milliseconds(((int)std::ceilf(1000.0/game_fps))));
