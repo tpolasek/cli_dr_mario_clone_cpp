@@ -47,9 +47,9 @@ void render_board(const PlayerBoard& board, const char* label, int x_offset,
         for (int c = 0; c < COLS; c++) {
             const Piece& p = board.grid[r][c];
             if (p.color == EMPTY) {
-                // Empty: subtle dot grid
-                buf[r][c].rows[0] = "\033[90m····\033[0m";
-                buf[r][c].rows[1] = "\033[90m····\033[0m";
+                // Empty: subtle dot grid (vertical divider between cells)
+                buf[r][c].rows[0] = "\033[90m   ·\033[0m";
+                buf[r][c].rows[1] = "\033[90m   ·\033[0m";
             } else if (p.virus) {
                 // Virus: diagonal shading — TL/BR dark, TR/BL bright, with flash
                 const bool flash = (anim_frame & 32);
