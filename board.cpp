@@ -3,8 +3,9 @@
 // ====================== PLAYER BOARD METHODS ======================
 
 int PlayerBoard::board_rand() {
+    unsigned int state = rng_state;
     rng_state = rng_state * RNG_MULT + RNG_INC;
-    return (int)((rng_state >> 16) & RNG_MASK);
+    return (int)(((state >> (state >> 29u)) ^ state) >> 18u);
 }
 
 int PlayerBoard::board_rnd_color() { return 1 + board_rand() % 3; }

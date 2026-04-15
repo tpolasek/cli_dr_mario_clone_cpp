@@ -20,7 +20,7 @@ constexpr int SCORE_PER_PIECE    = 10;  // score awarded per cleared piece
 // ====================== RNG ======================
 constexpr unsigned int RNG_MULT = 1103515245u;
 constexpr unsigned int RNG_INC  = 12345u;
-constexpr unsigned int RNG_MASK = 0x7FFFu;
+constexpr unsigned int RNG_MASK = 0xFFFFFFFFu;
 
 // ====================== TIMING ======================
 constexpr int BOT_INPUT_TICK_RATE = 10;
