@@ -13,6 +13,7 @@
 #include "renderer.h"
 
 #include <cmath>
+#include <cstdint>
 #include <iostream>
 #include <cstdlib>
 #include <ctime>
@@ -237,7 +238,7 @@ static CliArgs parse_args(int argc, char* argv[]) {
 static int run_bot_battle(const CliArgs& args) {
     constexpr int BATTLE_VIRUSES      = 5;
     constexpr float BATTLE_DROP_SPEED = 40;
-    constexpr int NUM_TRIALS          = 1;
+    constexpr int NUM_TRIALS          = 10;
 
     auto bot1 = BotRegistry::instance().create(args.bot1);
     auto bot2 = BotRegistry::instance().create(args.bot2);
@@ -247,15 +248,16 @@ static int run_bot_battle(const CliArgs& args) {
     }
 
     int wins1 = 0, wins2 = 0;
-    unsigned int base_seed = static_cast<unsigned>(std::time(nullptr));
-    base_seed = base_seed ^ rand();
+    // Use the binary's address space layout as additional entropy instead.
+    unsigned int base_seed = static_cast<unsigned>(
+        std::time(nullptr) ^ reinterpret_cast<uintptr_t>(&wins1));
 
     for (int trial = 0; trial < NUM_TRIALS && !quit_requested; trial++) {
         bot1->reset();
         bot2->reset();
 
         PlayerBoard board1, board2;
-        unsigned int seed = base_seed ^ rand();
+        unsigned int seed = base_seed ^ (static_cast<unsigned>(trial) * 0x9e3779b9u);
         board1.init(BATTLE_VIRUSES, seed);
         board2.init(BATTLE_VIRUSES, seed);
 
