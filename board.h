@@ -62,13 +62,28 @@ struct PlayerBoard {
     int board_rnd_color();
     void board_spawn(Capsule& c);
     void clear_grid();
-    bool cell_free(int r, int c) const;
-    bool fits(const Capsule& c) const;
+    bool cell_free(int r, int c) const {
+        if (r < 0 && c >= 0 && c < COLS) return true;
+        return r >= 0 && r < ROWS && c >= 0 && c < COLS && grid[r][c].color == EMPTY;
+    }
+
+    bool fits(const Capsule& c) const {
+        return cell_free(c.r1(), c.c1()) && cell_free(c.r2(), c.c2());
+    }
+
+    bool is_partner(int r, int c, int dr, int dc, int capId) const {
+        int nr = r + dr, nc = c + dc;
+        return nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS &&
+               grid[nr][nc].color != EMPTY &&
+               !grid[nr][nc].virus &&
+               grid[nr][nc].capId == capId;
+    }
     void stamp(const Capsule& c);
     int find_and_remove_matches();
     void flush_cascade(std::queue<int>& opponent_attacks);
-    bool is_partner(int r, int c, int dr, int dc, int capId) const;
-    void swap_cells(int r1, int c1, int r2, int c2);
+    void swap_cells(int r1, int c1, int r2, int c2) {
+        std::swap(grid[r1][c1], grid[r2][c2]);
+    }
     void clear_cell(int r, int c);
     bool gravity_step();
     bool receive_attacks(std::queue<int>& attacks);

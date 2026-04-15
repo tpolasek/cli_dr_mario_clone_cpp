@@ -211,6 +211,7 @@ int evaluate_board(const PlayerBoard& board, int viruses_cleared, int cascade_ch
     if (cascade_chains > 1) score += (cascade_chains - 1) * CASCADE_CHAIN_BONUS;
 
     std::array<int, COLS> heights{};
+    std::array<bool, COLS> col_seen{};
     int topmost = ROWS;
     int holes = 0;
     int roughness = 0;
@@ -219,43 +220,36 @@ int evaluate_board(const PlayerBoard& board, int viruses_cleared, int cascade_ch
     int setup = 0;
     int danger = 0;
 
-    for (int c = 0; c < COLS; c++) {
-        bool seen = false;
-        int first = ROWS;
-        for (int r = 0; r < ROWS; r++) {
-            const Piece& cell = board.grid[r][c];
-            if (cell.color != EMPTY) {
-                seen = true;
-                if (first == ROWS) first = r;
-                if (r < topmost) topmost = r;
-            } else if (seen) {
-                holes++;
-            }
-        }
-        heights[c] = (first == ROWS) ? 0 : (ROWS - first);
-    }
-
-    for (int c = 1; c < COLS; c++)
-        roughness += std::abs(heights[c] - heights[c - 1]);
-
+    // Combined single-pass grid scan for heights, holes, and per-virus analysis
     for (int r = 0; r < ROWS; r++) {
         for (int c = 0; c < COLS; c++) {
             const Piece& cell = board.grid[r][c];
-            if (!cell.virus) continue;
-            for (int rr = 0; rr < r; rr++) {
-                const Piece& above = board.grid[rr][c];
-                if (above.color != EMPTY) {
-                    buried_virus++;
-                    if (above.color != cell.color) buried_mismatch++;
+            if (cell.color != EMPTY) {
+                if (!col_seen[c]) {
+                    col_seen[c] = true;
+                    heights[c] = ROWS - r;
+                    if (r < topmost) topmost = r;
                 }
+            } else if (col_seen[c]) {
+                holes++;
             }
-            setup += std::max(
-                line_setup_score(board, r, c, 0, 1),
-                line_setup_score(board, r, c, 1, 0)
-            );
-            if (r < VIRUS_FREE_ROWS) {
-                int d = VIRUS_FREE_ROWS - r;
-                danger += d * d;
+
+            if (cell.virus) {
+                for (int rr = 0; rr < r; rr++) {
+                    const Piece& above = board.grid[rr][c];
+                    if (above.color != EMPTY) {
+                        buried_virus++;
+                        if (above.color != cell.color) buried_mismatch++;
+                    }
+                }
+                setup += std::max(
+                    line_setup_score(board, r, c, 0, 1),
+                    line_setup_score(board, r, c, 1, 0)
+                );
+                if (r < VIRUS_FREE_ROWS) {
+                    int d = VIRUS_FREE_ROWS - r;
+                    danger += d * d;
+                }
             }
         }
     }

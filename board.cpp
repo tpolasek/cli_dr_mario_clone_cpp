@@ -24,15 +24,6 @@ void PlayerBoard::clear_grid() {
     next_cap_id = 1;
 }
 
-bool PlayerBoard::cell_free(int r, int c) const {
-    if (r < 0 && c >= 0 && c < COLS) return true;
-    return r >= 0 && r < ROWS && c >= 0 && c < COLS && grid[r][c].color == EMPTY;
-}
-
-bool PlayerBoard::fits(const Capsule& c) const {
-    return cell_free(c.r1(), c.c1()) && cell_free(c.r2(), c.c2());
-}
-
 void PlayerBoard::stamp(const Capsule& c) {
     int id = next_cap_id++;
     auto set_cell = [&](int r, int col, int color) {
@@ -47,8 +38,7 @@ void PlayerBoard::stamp(const Capsule& c) {
 }
 
 int PlayerBoard::find_and_remove_matches() {
-    std::vector<std::vector<bool>> kill(ROWS, std::vector<bool>(COLS, false));
-    std::vector<int> colors_cleared;
+    bool kill[ROWS][COLS] = {};
 
     auto check_runs = [&](bool horizontal) {
         int outer = horizontal ? ROWS : COLS;
@@ -65,7 +55,7 @@ int PlayerBoard::find_and_remove_matches() {
                     run++;
                 } else {
                     if (run >= MIN_RUN_LENGTH) {
-                        colors_cleared.push_back(grid[r1][c1].color);
+                        cascade_colors.push_back(grid[r1][c1].color);
                         for (int k = j - run; k < j; k++) {
                             int kr = horizontal ? i : k;
                             int kc = horizontal ? k : i;
@@ -95,8 +85,6 @@ int PlayerBoard::find_and_remove_matches() {
     if (removed) {
         cleared_viruses += virus_killed;
         score += removed * SCORE_PER_PIECE;
-        for (int color : colors_cleared)
-            cascade_colors.push_back(color);
     }
     return removed;
 }
@@ -110,25 +98,13 @@ void PlayerBoard::flush_cascade(std::queue<int>& opponent_attacks) {
     cascade_colors.clear();
 }
 
-bool PlayerBoard::is_partner(int r, int c, int dr, int dc, int capId) const {
-    int nr = r + dr, nc = c + dc;
-    return nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS &&
-           grid[nr][nc].color != EMPTY &&
-           !grid[nr][nc].virus &&
-           grid[nr][nc].capId == capId;
-}
-
-void PlayerBoard::swap_cells(int r1, int c1, int r2, int c2) {
-    std::swap(grid[r1][c1], grid[r2][c2]);
-}
-
 void PlayerBoard::clear_cell(int r, int c) {
     grid[r][c] = {EMPTY, false, 0};
 }
 
 bool PlayerBoard::gravity_step() {
     bool moved = false;
-    std::vector<std::vector<bool>> done(ROWS, std::vector<bool>(COLS, false));
+    bool done[ROWS][COLS] = {};
 
     for (int r = ROWS - 1; r >= 0; r--) {
         for (int c = 0; c < COLS; c++) {
