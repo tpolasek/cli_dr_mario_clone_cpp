@@ -1,0 +1,507 @@
+#include "bot_guru.h"
+#include "constants.h"
+#include <array>
+#include <limits>
+#include <queue>
+#include <algorithm>
+#include <vector>
+
+namespace {
+
+// ====================== SCORING CONSTANTS ======================
+constexpr int WIN_SCORE                    = 500000000;
+constexpr int VIRUS_CLEAR_SCORE            = 5000000;
+constexpr int CASCADE_CHAIN_BONUS          = 3000000;
+constexpr int REMAINING_VIRUS_PENALTY      = 110000;
+constexpr int HOLE_PENALTY                 = 4200;
+constexpr int BURIED_VIRUS_PENALTY         = 600;
+constexpr int BURIED_MISMATCH_PENALTY      = 200;
+constexpr int ROUGHNESS_PENALTY            = 140;
+constexpr int STACK_HEIGHT_PENALTY         = 220;
+constexpr int DANGER_ZONE_PENALTY          = 12000;
+constexpr int OFFSCREEN_LANDING_PENALTY    = 350000;
+constexpr int VIRUS_ADJACENCY_BONUS        = 6000;
+constexpr int NEAR_CLEAR_VIRUS_BONUS       = 80000;
+constexpr int LOOKAHEAD_TOP_K              = 5;
+
+constexpr std::array<Move, 4> kMoves = {{Move::LEFT, Move::RIGHT, Move::ROTATE, Move::DROP}};
+
+// ====================== SEARCH HELPERS ======================
+
+int row_slot(int row) { return row + 1; }
+
+bool in_search_bounds(const Capsule& cap) {
+    return cap.r >= -1 && cap.r < ROWS &&
+           cap.c >= 0 && cap.c < COLS &&
+           cap.orient >= 0 && cap.orient < 4;
+}
+
+bool try_apply_move(const PlayerBoard& board, const Capsule& start, Move move, Capsule& out) {
+    out = start;
+    switch (move) {
+    case Move::LEFT:  out.c--; break;
+    case Move::RIGHT: out.c++; break;
+    case Move::DOWN:
+    case Move::DROP:  out.r++; break;
+    case Move::ROTATE:
+        out.rotate();
+        if (board.fits(out)) return true;
+        out = start; out.c--; out.rotate();
+        if (board.fits(out)) return true;
+        out = start; out.c++; out.rotate();
+        if (board.fits(out)) return true;
+        out = start; out.r--; out.rotate();
+        if (board.fits(out)) return true;
+        return false;
+    default: return false;
+    }
+    return board.fits(out);
+}
+
+Capsule drop_to_rest(const PlayerBoard& board, Capsule cap) {
+    while (true) {
+        Capsule next = cap;
+        next.r++;
+        if (!board.fits(next)) return cap;
+        cap = next;
+    }
+}
+
+// ====================== CASCADE ======================
+
+std::pair<int, int> simulate_cascade(PlayerBoard& board) {
+    int total_viruses = 0;
+    int chains = 0;
+    while (true) {
+        int before = board.cleared_viruses;
+        int removed = board.find_and_remove_matches();
+        total_viruses += board.cleared_viruses - before;
+        if (removed > 0) chains++;
+        if (removed == 0 && !board.gravity_step()) break;
+    }
+    return {total_viruses, chains};
+}
+
+// ====================== EVALUATION (identical to BFS bot) ======================
+
+int count_same_color_neighbors(const PlayerBoard& board, int r, int c, int color) {
+    constexpr int dr[] = {-1, 1, 0, 0};
+    constexpr int dc[] = {0, 0, -1, 1};
+    int count = 0;
+    for (int d = 0; d < 4; d++) {
+        int nr = r + dr[d], nc = c + dc[d];
+        if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS &&
+            board.grid[nr][nc].color == color)
+            count++;
+    }
+    return count;
+}
+
+int capsule_virus_alignment(const PlayerBoard& board, const Capsule& landing) {
+    int score = 0;
+    constexpr int dr[] = {-1, 1, 0, 0};
+    constexpr int dc[] = {0, 0, -1, 1};
+    auto check_half = [&](int r, int c, int color) {
+        if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return;
+        for (int d = 0; d < 4; d++) {
+            int nr = r + dr[d], nc = c + dc[d];
+            if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS &&
+                board.grid[nr][nc].virus &&
+                board.grid[nr][nc].color == color) {
+                score += VIRUS_ADJACENCY_BONUS;
+                int same = count_same_color_neighbors(board, nr, nc, color);
+                if (1 + same + 1 >= MIN_RUN_LENGTH)
+                    score += VIRUS_ADJACENCY_BONUS * 2;
+            }
+        }
+    };
+    check_half(landing.r1(), landing.c1(), landing.h1);
+    check_half(landing.r2(), landing.c2(), landing.h2);
+    return score;
+}
+
+int line_setup_score(const PlayerBoard& board, int r, int c, int dr, int dc) {
+    const int color = board.grid[r][c].color;
+    int run = 1;
+    int open_ends = 0;
+    bool involves_virus = board.grid[r][c].virus;
+
+    int rr = r - dr, cc = c - dc;
+    while (rr >= 0 && rr < ROWS && cc >= 0 && cc < COLS &&
+           board.grid[rr][cc].color == color) {
+        if (board.grid[rr][cc].virus) involves_virus = true;
+        run++; rr -= dr; cc -= dc;
+    }
+    if (rr >= 0 && rr < ROWS && cc >= 0 && cc < COLS &&
+        board.grid[rr][cc].color == EMPTY) open_ends++;
+
+    rr = r + dr; cc = c + dc;
+    while (rr >= 0 && rr < ROWS && cc >= 0 && cc < COLS &&
+           board.grid[rr][cc].color == color) {
+        if (board.grid[rr][cc].virus) involves_virus = true;
+        run++; rr += dr; cc += dc;
+    }
+    if (rr >= 0 && rr < ROWS && cc >= 0 && cc < COLS &&
+        board.grid[rr][cc].color == EMPTY) open_ends++;
+
+    if (open_ends == 0) return 0;
+    int mult = involves_virus ? 3 : 1;
+    if (run >= 3) return (3400 + open_ends * 400) * mult;
+    if (run == 2) return (1100 + open_ends * 200) * mult;
+    return 150 * open_ends * mult;
+}
+
+int near_clear_virus_setups(const PlayerBoard& board) {
+    int score = 0;
+    auto check_axis = [&](bool horizontal) {
+        int outer = horizontal ? ROWS : COLS;
+        int inner = horizontal ? COLS : ROWS;
+        for (int i = 0; i < outer; i++) {
+            int run = 1;
+            bool has_virus = false;
+            int start_j = 0;
+            for (int j = 1; j <= inner; j++) {
+                int r1 = horizontal ? i : j - 1, c1 = horizontal ? j - 1 : i;
+                int r2 = horizontal ? i : j,     c2 = horizontal ? j : i;
+                bool same = (j < inner &&
+                             board.grid[r2][c2].color != EMPTY &&
+                             board.grid[r2][c2].color == board.grid[r1][c1].color);
+                if (same) {
+                    if (board.grid[r2][c2].virus) has_virus = true;
+                    run++;
+                } else {
+                    if (run == (MIN_RUN_LENGTH - 1) && has_virus) {
+                        int before_r = horizontal ? i : start_j - 1;
+                        int before_c = horizontal ? start_j - 1 : i;
+                        int after_r = horizontal ? i : j;
+                        int after_c = horizontal ? j : i;
+                        bool open_before = (before_r >= 0 && before_r < ROWS &&
+                                           before_c >= 0 && before_c < COLS &&
+                                           board.grid[before_r][before_c].color == EMPTY);
+                        bool open_after = (after_r >= 0 && after_r < ROWS &&
+                                          after_c >= 0 && after_c < COLS &&
+                                          board.grid[after_r][after_c].color == EMPTY);
+                        if (open_before || open_after) {
+                            score += NEAR_CLEAR_VIRUS_BONUS;
+                            if (open_before && open_after)
+                                score += NEAR_CLEAR_VIRUS_BONUS / 2;
+                        }
+                    }
+                    start_j = j;
+                    run = 1;
+                    has_virus = false;
+                    if (j < inner && board.grid[r2][c2].color != EMPTY)
+                        has_virus = board.grid[r2][c2].virus;
+                }
+            }
+        }
+    };
+    check_axis(true);
+    check_axis(false);
+    return score;
+}
+
+int evaluate_board(const PlayerBoard& board, int viruses_cleared, int cascade_chains,
+                   const Capsule& landing) {
+    const int remaining = board.total_viruses - board.cleared_viruses;
+    if (remaining <= 0) return WIN_SCORE;
+
+    int score = viruses_cleared * VIRUS_CLEAR_SCORE;
+    score -= remaining * REMAINING_VIRUS_PENALTY;
+    if (cascade_chains > 1) score += (cascade_chains - 1) * CASCADE_CHAIN_BONUS;
+
+    std::array<int, COLS> heights{};
+    int topmost = ROWS;
+    int holes = 0;
+    int roughness = 0;
+    int buried_virus = 0;
+    int buried_mismatch = 0;
+    int setup = 0;
+    int danger = 0;
+
+    for (int c = 0; c < COLS; c++) {
+        bool seen = false;
+        int first = ROWS;
+        for (int r = 0; r < ROWS; r++) {
+            const Piece& cell = board.grid[r][c];
+            if (cell.color != EMPTY) {
+                seen = true;
+                if (first == ROWS) first = r;
+                if (r < topmost) topmost = r;
+            } else if (seen) {
+                holes++;
+            }
+        }
+        heights[c] = (first == ROWS) ? 0 : (ROWS - first);
+    }
+
+    for (int c = 1; c < COLS; c++)
+        roughness += std::abs(heights[c] - heights[c - 1]);
+
+    for (int r = 0; r < ROWS; r++) {
+        for (int c = 0; c < COLS; c++) {
+            const Piece& cell = board.grid[r][c];
+            if (!cell.virus) continue;
+            for (int rr = 0; rr < r; rr++) {
+                const Piece& above = board.grid[rr][c];
+                if (above.color != EMPTY) {
+                    buried_virus++;
+                    if (above.color != cell.color) buried_mismatch++;
+                }
+            }
+            setup += std::max(
+                line_setup_score(board, r, c, 0, 1),
+                line_setup_score(board, r, c, 1, 0)
+            );
+            if (r < VIRUS_FREE_ROWS) {
+                int d = VIRUS_FREE_ROWS - r;
+                danger += d * d;
+            }
+        }
+    }
+
+    if (topmost < ROWS) {
+        int h = ROWS - topmost;
+        score -= h * h * STACK_HEIGHT_PENALTY;
+    }
+
+    score -= holes * HOLE_PENALTY;
+    score -= buried_virus * BURIED_VIRUS_PENALTY;
+    score -= buried_mismatch * BURIED_MISMATCH_PENALTY;
+    score -= roughness * ROUGHNESS_PENALTY;
+    score -= danger * DANGER_ZONE_PENALTY;
+    score += setup;
+    score += near_clear_virus_setups(board);
+
+    if (viruses_cleared == 0)
+        score += capsule_virus_alignment(board, landing);
+
+    if (landing.r1() < 0 || landing.r2() < 0)
+        score -= OFFSCREEN_LANDING_PENALTY;
+
+    return score;
+}
+
+// ====================== BFS SEARCH ======================
+
+struct SearchNode {
+    Capsule cap;
+    Move first_move;
+    int steps = 0;
+};
+
+struct Candidate {
+    bool valid = false;
+    int score = std::numeric_limits<int>::min();
+    int viruses_cleared = 0;
+    int cascade_chains = 0;
+    int steps = 0;
+    int landing_row = -1;
+    Move next_move = Move::NONE;
+    Capsule landing{};
+    PlayerBoard board_after{};  // board state after cascade (for lookahead)
+};
+
+bool better_candidate(const Candidate& lhs, const Candidate& rhs) {
+    if (!rhs.valid) return lhs.valid;
+    if (!lhs.valid) return false;
+    if (lhs.viruses_cleared != rhs.viruses_cleared) return lhs.viruses_cleared > rhs.viruses_cleared;
+    if (lhs.cascade_chains != rhs.cascade_chains) return lhs.cascade_chains > rhs.cascade_chains;
+    if (lhs.score != rhs.score) return lhs.score > rhs.score;
+    if (lhs.steps != rhs.steps) return lhs.steps < rhs.steps;
+    if (lhs.landing_row != rhs.landing_row) return lhs.landing_row > rhs.landing_row;
+    const int lhs_center = std::abs(lhs.landing.c - (COLS / 2));
+    const int rhs_center = std::abs(rhs.landing.c - (COLS / 2));
+    if (lhs_center != rhs_center) return lhs_center < rhs_center;
+    return static_cast<int>(lhs.next_move) < static_cast<int>(rhs.next_move);
+}
+
+// Run BFS on board, return sorted list of candidates (best first)
+std::vector<Candidate> bfs_eval(const PlayerBoard& board) {
+    std::vector<Candidate> results;
+
+    bool visited[ROWS + 1][COLS][4] = {};
+    bool landing_seen[ROWS + 1][COLS][4] = {};
+    std::queue<SearchNode> queue;
+    queue.push({board.cap, Move::NONE, 0});
+    visited[row_slot(board.cap.r)][board.cap.c][board.cap.orient] = true;
+
+    while (!queue.empty()) {
+        SearchNode current = queue.front();
+        queue.pop();
+
+        Capsule landing = drop_to_rest(board, current.cap);
+        int landing_row = std::max(landing.r1(), landing.r2());
+
+        Move next_move = current.first_move;
+        if (next_move == Move::NONE) {
+            Capsule down;
+            next_move = try_apply_move(board, board.cap, Move::DROP, down) ? Move::DROP : Move::NONE;
+        }
+
+        PlayerBoard sim = board;
+        sim.stamp(landing);
+        auto [vc, chains] = simulate_cascade(sim);
+        int score = evaluate_board(sim, vc, chains, landing);
+
+        // Only keep unique landings (first BFS visit = fewest steps)
+        bool dup = false;
+        if (landing.r >= -1 && landing.r < ROWS) {
+            int lr = row_slot(landing.r);
+            dup = landing_seen[lr][landing.c][landing.orient];
+            if (!dup) landing_seen[lr][landing.c][landing.orient] = true;
+        }
+        if (!dup) {
+            results.push_back({true, score, vc, chains, current.steps, landing_row, next_move, landing, std::move(sim)});
+        }
+
+        for (Move move : kMoves) {
+            Capsule next_cap;
+            if (!try_apply_move(board, current.cap, move, next_cap)) continue;
+            if (!in_search_bounds(next_cap)) continue;
+            int row = row_slot(next_cap.r);
+            if (visited[row][next_cap.c][next_cap.orient]) continue;
+            visited[row][next_cap.c][next_cap.orient] = true;
+            queue.push({next_cap, current.first_move == Move::NONE ? move : current.first_move, current.steps + 1});
+        }
+    }
+
+    std::sort(results.begin(), results.end(), better_candidate);
+    return results;
+}
+
+// Grid search for piece 2: enumerate all possible landing positions
+// Much faster than full BFS (~30 positions vs ~288)
+struct QuickResult {
+    int score = std::numeric_limits<int>::min();
+    int vc = 0;
+    int chains = 0;
+};
+
+QuickResult grid_search_eval(const PlayerBoard& board) {
+    QuickResult best;
+
+    Capsule cap = board.cap; // start with orient 0
+    for (int o = 0; o < 4; o++) {
+        int max_c = ((o & 1) == 0) ? COLS - 1 : COLS;
+        for (int c = 0; c < max_c; c++) {
+            cap.c = c;
+            cap.r = 0;
+            if (!board.fits(cap)) continue;
+
+            Capsule landing = drop_to_rest(board, cap);
+            PlayerBoard sim = board;
+            sim.stamp(landing);
+            auto [vc, chains] = simulate_cascade(sim);
+            int score = evaluate_board(sim, vc, chains, landing);
+
+            bool better = false;
+            if (vc > best.vc) better = true;
+            else if (vc == best.vc && chains > best.chains) better = true;
+            else if (vc == best.vc && chains == best.chains && score > best.score) better = true;
+
+            if (better) {
+                best.score = score;
+                best.vc = vc;
+                best.chains = chains;
+            }
+        }
+        cap.rotate();
+    }
+
+    return best;
+}
+
+} // anonymous namespace
+
+// ====================== GURU BOT ======================
+
+Move GuruBot::get_move(const PlayerBoard& board) {
+    if (board.phase != Phase::PLAYING) return Move::NONE;
+    if (!in_search_bounds(board.cap)) return Move::NONE;
+
+    // Step 1: Full BFS for piece 1
+    auto candidates = bfs_eval(board);
+    if (candidates.empty()) {
+        Capsule down;
+        return try_apply_move(board, board.cap, Move::DROP, down) ? Move::DROP : Move::NONE;
+    }
+
+    // If best move wins immediately, take it
+    if (candidates[0].board_after.cleared_viruses >= candidates[0].board_after.total_viruses) {
+        return candidates[0].next_move;
+    }
+
+    // If best move clears viruses, usually just take it (2-piece lookahead is for setup moves)
+    // But if multiple moves clear the same number of viruses, use lookahead to pick among them
+    int best_vc = candidates[0].viruses_cleared;
+    int best_chains = candidates[0].cascade_chains;
+
+    if (best_vc > 0) {
+        // Check if multiple candidates clear the same amount
+        int same_count = 0;
+        for (auto& c : candidates) {
+            if (c.viruses_cleared == best_vc && c.cascade_chains == best_chains)
+                same_count++;
+            else break;
+        }
+        if (same_count <= 1) {
+            // Only one best clearing move, take it immediately
+            return candidates[0].next_move;
+        }
+        // Multiple equivalent clearing moves — fall through to lookahead
+    }
+
+    // Step 2: 2-piece lookahead for top candidates
+    // Evaluate each top first-piece placement by looking at best piece-2 outcome
+    int k = std::min((int)candidates.size(), LOOKAHEAD_TOP_K);
+
+    int best_idx = 0;
+    int64_t best_combined = std::numeric_limits<int64_t>::min();
+
+    for (int i = 0; i < k; i++) {
+        Candidate& first = candidates[i];
+
+        // Set up board for piece 2
+        PlayerBoard board2 = first.board_after;
+        board2.cap = board.nxt;
+
+        // Check if next piece fits
+        if (!board2.fits(board2.cap)) {
+            // Game over — very bad
+            int64_t score = (int64_t)first.viruses_cleared * VIRUS_CLEAR_SCORE - 200000000LL;
+            if (score > best_combined) {
+                best_combined = score;
+                best_idx = i;
+            }
+            continue;
+        }
+
+        // Grid search for piece 2
+        QuickResult second = grid_search_eval(board2);
+
+        // Combined score: first-piece virus clears + best second-piece evaluation
+        // second.score already includes second.vc * VIRUS_CLEAR_SCORE and board quality
+        int64_t combined = (int64_t)first.viruses_cleared * VIRUS_CLEAR_SCORE
+                         + (int64_t)(first.cascade_chains > 1 ? (first.cascade_chains - 1) * CASCADE_CHAIN_BONUS : 0)
+                         + (int64_t)second.score;
+
+        if (combined > best_combined) {
+            best_combined = combined;
+            best_idx = i;
+        }
+    }
+
+    return candidates[best_idx].next_move;
+}
+
+// ====================== SELF-REGISTRATION ======================
+
+static bool guru_bot_registered = [] {
+    BotRegistry::instance().register_bot(
+        "guru",
+        "2-piece BFS lookahead with virus-aware scoring",
+        []() -> std::unique_ptr<Bot> { return std::make_unique<GuruBot>(); }
+    );
+    return true;
+}();
