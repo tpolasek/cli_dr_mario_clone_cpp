@@ -237,7 +237,7 @@ static CliArgs parse_args(int argc, char* argv[]) {
 static int run_bot_battle(const CliArgs& args) {
     constexpr int BATTLE_VIRUSES      = 5;
     constexpr float BATTLE_DROP_SPEED = 40;
-    constexpr int NUM_TRIALS          = 100;
+    constexpr int NUM_TRIALS          = 1;
 
     auto bot1 = BotRegistry::instance().create(args.bot1);
     auto bot2 = BotRegistry::instance().create(args.bot2);
