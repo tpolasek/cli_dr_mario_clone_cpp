@@ -84,7 +84,7 @@ std::pair<int, int> simulate_cascade(PlayerBoard& board) {
     int chains = 0;
     while (true) {
         int before = board.cleared_viruses;
-        int removed = board.find_and_remove_matches();
+        int removed = board.find_and_remove_matches_sim();
         total_viruses += board.cleared_viruses - before;
         if (removed > 0) chains++;
         if (removed == 0 && !board.gravity_step()) break;
@@ -277,8 +277,11 @@ int64_t evaluate_board(const PlayerBoard& board, int viruses_cleared, int cascad
     int buried_mismatch = 0;
     int64_t setup = 0;
     int danger = 0;
+    int64_t same_color_above_bonus = 0;
+    int empty_bottom_cols = 0;
 
-    // Combined single-pass grid scan for heights, holes, and per-virus analysis
+    // Combined single-pass grid scan for heights, holes, per-virus analysis,
+    // and same-color-above-virus bonus
     for (int r = 0; r < ROWS; r++) {
         for (int c = 0; c < COLS; c++) {
             const Piece& cell = board.grid[r][c];
@@ -294,13 +297,21 @@ int64_t evaluate_board(const PlayerBoard& board, int viruses_cleared, int cascad
             }
 
             if (cell.virus) {
-                for (int rr = 0; rr < r; rr++) {
+                int consec_same = 0;
+                bool consec_broken = false;
+                for (int rr = r - 1; rr >= 0; rr--) {
                     const Piece& above = board.grid[rr][c];
-                    if (above.color != EMPTY) {
-                        buried_virus++;
-                        if (above.color != cell.color) buried_mismatch++;
+                    if (above.color == EMPTY) break;
+                    buried_virus++;
+                    if (above.color != cell.color) {
+                        buried_mismatch++;
+                        consec_broken = true;
+                    } else if (!consec_broken) {
+                        consec_same++;
                     }
                 }
+                same_color_above_bonus += consec_same * SAME_COLOR_ABOVE_VIRUS;
+
                 setup += std::max(
                     line_setup_score(board, r, c, 0, 1),
                     line_setup_score(board, r, c, 1, 0)
@@ -312,6 +323,14 @@ int64_t evaluate_board(const PlayerBoard& board, int viruses_cleared, int cascad
             }
         }
     }
+
+    // Flexibility: count empty columns (bottom row)
+    for (int c = 0; c < COLS; c++)
+        if (board.grid[ROWS - 1][c].color == EMPTY) empty_bottom_cols++;
+
+    // Roughness: compute from heights
+    for (int c = 1; c < COLS; c++)
+        roughness += std::abs(heights[c] - heights[c - 1]);
 
     // Stack height penalty (quadratic + cubic)
     if (topmost < ROWS) {
@@ -327,9 +346,9 @@ int64_t evaluate_board(const PlayerBoard& board, int viruses_cleared, int cascad
     score -= (int64_t)danger * DANGER_ZONE_PENALTY;
     score += setup;
     score += near_clear_virus_setups(board);
-    score += same_color_above_virus_bonus(board);
+    score += same_color_above_bonus;
     score -= column_isolation_penalty(heights);
-    score += flexibility_score(board);
+    score += (int64_t)empty_bottom_cols * FLEXIBILITY_BONUS;
 
     if (viruses_cleared == 0)
         score += capsule_virus_alignment(board, landing);

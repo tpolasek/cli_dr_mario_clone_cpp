@@ -80,7 +80,7 @@ std::pair<int, int> simulate_cascade(PlayerBoard& board) {
     int chains = 0;
     while (true) {
         int before = board.cleared_viruses;
-        int removed = board.find_and_remove_matches();
+        int removed = board.find_and_remove_matches_sim();
         total_viruses += board.cleared_viruses - before;
         if (removed > 0) chains++;
         if (removed == 0 && !board.gravity_step()) break;
@@ -259,6 +259,10 @@ int evaluate_board(const PlayerBoard& board, int viruses_cleared, int cascade_ch
             }
         }
     }
+
+    // Roughness: compute from heights
+    for (int c = 1; c < COLS; c++)
+        roughness += std::abs(heights[c] - heights[c - 1]);
 
     if (topmost < ROWS) {
         int h = ROWS - topmost;

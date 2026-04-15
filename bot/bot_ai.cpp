@@ -275,7 +275,7 @@ std::pair<int, int> simulate_cascade_with_chains(PlayerBoard& board) {
 
     while (true) {
         int before = board.cleared_viruses;
-        int removed = board.find_and_remove_matches();
+        int removed = board.find_and_remove_matches_sim();
         int viruses_this_chain = board.cleared_viruses - before;
         total_viruses += viruses_this_chain;
 

@@ -104,37 +104,36 @@ void PlayerBoard::clear_cell(int r, int c) {
 
 bool PlayerBoard::gravity_step() {
     bool moved = false;
-    bool done[ROWS][COLS] = {};
 
-    for (int r = ROWS - 1; r >= 0; r--) {
+    for (int r = ROWS - 2; r >= 0; r--) {
         for (int c = 0; c < COLS; c++) {
-            if (grid[r][c].color == EMPTY || grid[r][c].virus || done[r][c])
+            if (grid[r][c].color == EMPTY || grid[r][c].virus)
                 continue;
 
             int capId = grid[r][c].capId;
 
+            // Check if this is the bottom half of a vertical capsule
             if (is_partner(r, c, -1, 0, capId)) {
                 if (r + 1 < ROWS && grid[r + 1][c].color == EMPTY) {
                     grid[r + 1][c] = grid[r][c];
                     grid[r][c] = grid[r - 1][c];
                     clear_cell(r - 1, c);
-                    done[r + 1][c] = true;
-                    done[r][c] = true;
                     moved = true;
                 }
                 continue;
             }
 
+            // Check if this is the top half of a vertical capsule (skip, bottom handles it)
             if (is_partner(r, c, 1, 0, capId))
                 continue;
 
+            // Check for horizontal partner
             int dc = 0;
             if (is_partner(r, c, 0, -1, capId)) dc = -1;
             else if (is_partner(r, c, 0, 1, capId)) dc = 1;
 
             if (dc != 0) {
                 int c2 = c + dc;
-                if (done[r][c] || done[r][c2]) continue;
                 if (r + 1 < ROWS &&
                     grid[r + 1][c].color == EMPTY &&
                     grid[r + 1][c2].color == EMPTY) {
@@ -142,15 +141,13 @@ bool PlayerBoard::gravity_step() {
                     grid[r + 1][c2] = grid[r][c2];
                     clear_cell(r, c);
                     clear_cell(r, c2);
-                    done[r + 1][c] = true;
-                    done[r + 1][c2] = true;
                     moved = true;
                 }
             } else {
+                // Single cell (orphan capsule half)
                 if (r + 1 < ROWS && grid[r + 1][c].color == EMPTY) {
                     grid[r + 1][c] = grid[r][c];
                     clear_cell(r, c);
-                    done[r + 1][c] = true;
                     moved = true;
                 }
             }
@@ -235,6 +232,70 @@ int PlayerBoard::simulate_cascade() {
     while (true) {
         int before = cleared_viruses;
         int removed = find_and_remove_matches();
+        total += (cleared_viruses - before);
+        if (removed == 0 && !gravity_step())
+            break;
+    }
+    return total;
+}
+
+// Simulation-only version: skips cascade_colors tracking (not needed during bot search)
+int PlayerBoard::find_and_remove_matches_sim() {
+    bool kill[ROWS][COLS] = {};
+
+    auto check_runs = [&](bool horizontal) {
+        int outer = horizontal ? ROWS : COLS;
+        int inner = horizontal ? COLS : ROWS;
+        for (int i = 0; i < outer; i++) {
+            int run = 1;
+            for (int j = 1; j <= inner; j++) {
+                int r1 = horizontal ? i : j - 1, c1 = horizontal ? j - 1 : i;
+                int r2 = horizontal ? i : j,     c2 = horizontal ? j : i;
+                bool same = (j < inner &&
+                             grid[r2][c2].color != EMPTY &&
+                             grid[r2][c2].color == grid[r1][c1].color);
+                if (same) {
+                    run++;
+                } else {
+                    if (run >= MIN_RUN_LENGTH) {
+                        for (int k = j - run; k < j; k++) {
+                            int kr = horizontal ? i : k;
+                            int kc = horizontal ? k : i;
+                            kill[kr][kc] = true;
+                        }
+                    }
+                    run = 1;
+                }
+            }
+        }
+    };
+
+    check_runs(true);
+    check_runs(false);
+
+    int removed = 0, virus_killed = 0;
+    for (int r = 0; r < ROWS; r++)
+        for (int c = 0; c < COLS; c++)
+            if (kill[r][c]) {
+                if (grid[r][c].virus) virus_killed++;
+                grid[r][c].color = EMPTY;
+                grid[r][c].virus = false;
+                grid[r][c].capId = 0;
+                removed++;
+            }
+
+    if (removed) {
+        cleared_viruses += virus_killed;
+        score += removed * SCORE_PER_PIECE;
+    }
+    return removed;
+}
+
+int PlayerBoard::simulate_cascade_sim() {
+    int total = 0;
+    while (true) {
+        int before = cleared_viruses;
+        int removed = find_and_remove_matches_sim();
         total += (cleared_viruses - before);
         if (removed == 0 && !gravity_step())
             break;

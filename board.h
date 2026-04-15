@@ -80,6 +80,7 @@ struct PlayerBoard {
     }
     void stamp(const Capsule& c);
     int find_and_remove_matches();
+    int find_and_remove_matches_sim(); // skips cascade_colors tracking
     void flush_cascade(std::queue<int>& opponent_attacks);
     void swap_cells(int r1, int c1, int r2, int c2) {
         std::swap(grid[r1][c1], grid[r2][c2]);
@@ -90,6 +91,7 @@ struct PlayerBoard {
     void place_viruses(int count);
     void new_piece();
     int simulate_cascade();
+    int simulate_cascade_sim(); // uses find_and_remove_matches_sim
     void clone_grid(const PlayerBoard& src);
     void init(int virus_count, unsigned int seed);
     bool apply_move(Move m);
