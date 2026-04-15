@@ -100,16 +100,15 @@ def main():
     bot2 = sys.argv[2]
     trials = int(sys.argv[3]) if len(sys.argv) > 3 else 300
 
-    print(f"Tournament: {bot1} vs {bot2} — {trials} trials")
-    print(f"Running... (using up to {min(trials, 32)} threads)")
-
     bot1_wins = 0
     bot2_wins = 0
     ties = 0
     errors = 0
     lock = threading.Lock()
 
-    max_workers = min(trials, 32)
+    max_workers = min(trials, os.cpu_count() or 16)
+    print(f"Tournament: {bot1} vs {bot2} — {trials} trials")
+    print(f"Running... {max_workers} threads)")
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
