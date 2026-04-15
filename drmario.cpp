@@ -248,13 +248,14 @@ static int run_bot_battle(const CliArgs& args) {
 
     int wins1 = 0, wins2 = 0;
     unsigned int base_seed = static_cast<unsigned>(std::time(nullptr));
+    base_seed = base_seed ^ rand();
 
     for (int trial = 0; trial < NUM_TRIALS && !quit_requested; trial++) {
         bot1->reset();
         bot2->reset();
 
         PlayerBoard board1, board2;
-        unsigned int seed = base_seed + trial;
+        unsigned int seed = base_seed ^ rand();
         board1.init(BATTLE_VIRUSES, seed);
         board2.init(BATTLE_VIRUSES, seed);
 

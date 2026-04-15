@@ -10,6 +10,7 @@ Exit codes from ./drmario:
     RC=2 → bot2 wins
 """
 
+import random
 import subprocess
 import sys
 import threading
@@ -18,7 +19,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 def run_match(bot1: str, bot2: str, match_num: int) -> int:
     """Run a single drmario match and return the winner (1 or 2)."""
-    cmd = f"./drmario --bot1 {bot1} --bot2 {bot2}"
+
+    flipped = bool(random.random() > 0.5)
+
+    if flipped:
+        cmd = f"./drmario --bot1 {bot2} --bot2 {bot1}"
+    else:
+        cmd = f"./drmario --bot1 {bot1} --bot2 {bot2}"
     result = subprocess.run(
         cmd,
         shell=True,
@@ -32,7 +39,13 @@ def run_match(bot1: str, bot2: str, match_num: int) -> int:
             f"[Match {match_num}] Unexpected return code {rc}, skipping.",
             file=sys.stderr,
         )
-        return 0
+        return 3
+
+    if flipped:
+        if rc == 1:
+            return 2
+        if rc == 2:
+            return 1
     return rc
 
 
