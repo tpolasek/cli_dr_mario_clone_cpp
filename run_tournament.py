@@ -13,12 +13,26 @@ Exit codes from ./drmario:
 import atexit
 import os
 import random
+import signal
 import subprocess
 import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 LOCK_FILE = "/tmp/drmario_tournament.lock"
+
+# Global shutdown flag and executor reference for signal handling
+shutdown_event = threading.Event()
+_executor = None
+
+
+def _handle_sigint(signum, frame):
+    """Catch CTRL+C: signal all threads and child processes to stop."""
+    sig = signal.Signals(signum).name
+    print(f"\n{sig} received — shutting down gracefully...", flush=True)
+    shutdown_event.set()
+    if _executor is not None:
+        _executor.shutdown(wait=False, cancel_futures=True)
 
 
 def acquire_lock():
@@ -59,6 +73,8 @@ def release_lock():
 
 def run_match(bot1: str, bot2: str, match_num: int) -> int:
     """Run a single drmario match and return the winner (1 or 2)."""
+    if shutdown_event.is_set():
+        return -1
 
     flipped = bool(random.random() > 0.5)
 
@@ -66,14 +82,28 @@ def run_match(bot1: str, bot2: str, match_num: int) -> int:
         cmd = f"./drmario --bot1 {bot2} --bot2 {bot1}"
     else:
         cmd = f"./drmario --bot1 {bot1} --bot2 {bot2}"
-    result = subprocess.run(
+    proc = subprocess.Popen(
         cmd,
         shell=True,
         executable="/bin/bash",
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
-    rc = result.returncode
+
+    # Poll so we can react to shutdown while waiting
+    while proc.poll() is None:
+        if shutdown_event.is_set():
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+            return -1
+        # Brief sleep to avoid busy-waiting
+        threading.Event().wait(0.1)
+
+    rc = proc.returncode
     if rc not in (0, 1, 2):
         print(
             f"[Match {match_num}] Unexpected return code {rc}, skipping.",
@@ -90,6 +120,9 @@ def run_match(bot1: str, bot2: str, match_num: int) -> int:
 
 
 def main():
+    # Register CTRL+C handler
+    signal.signal(signal.SIGINT, _handle_sigint)
+
     acquire_lock()
 
     if len(sys.argv) < 3:
@@ -110,12 +143,17 @@ def main():
     print(f"Tournament: {bot1} vs {bot2} — {trials} trials")
     print(f"Running... {max_workers} threads)")
 
+    global _executor
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        _executor = executor
         futures = {
             executor.submit(run_match, bot1, bot2, i + 1): i + 1 for i in range(trials)
         }
 
         for future in as_completed(futures):
+            if shutdown_event.is_set():
+                break
+
             match_num = futures[future]
             try:
                 winner = future.result()
@@ -123,6 +161,9 @@ def main():
                 with lock:
                     errors += 1
                 print(f"[Match {match_num}] Exception: {e}", file=sys.stderr)
+                continue
+
+            if winner == -1:
                 continue
 
             with lock:
@@ -138,6 +179,11 @@ def main():
                 print(
                     f"  Progress: {completed}/{trials} matches completed...", flush=True
                 )
+
+    if shutdown_event.is_set():
+        print("\nTournament cancelled by user.", flush=True)
+        release_lock()
+        sys.exit(130)  # 128 + SIGINT(2)
 
     # ── Final Results ──────────────────────────────────────────────
     total = bot1_wins + bot2_wins + ties
