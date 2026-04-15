@@ -10,11 +10,51 @@ Exit codes from ./drmario:
     RC=2 → bot2 wins
 """
 
+import atexit
+import os
 import random
 import subprocess
 import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+LOCK_FILE = "/tmp/drmario_tournament.lock"
+
+
+def acquire_lock():
+    """Prevent multiple instances via a PID file. Exits fast if already running."""
+    if os.path.exists(LOCK_FILE):
+        try:
+            pid = int(open(LOCK_FILE).read().strip())
+            # Check if the process is actually still alive
+            os.kill(pid, 0)
+            print(
+                f"Another tournament instance is already running (PID {pid}). Exiting.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        except (ValueError, ProcessLookupError):
+            # Stale lock file — clean it up
+            os.remove(LOCK_FILE)
+        except PermissionError:
+            # Process exists but we can't signal it — treat as running
+            print(
+                f"Another tournament instance may be running (PID {pid}). Exiting. WARNING DANGER: DO NOT KILL THE TOURNAMENT PROGRESS, INSTEAD WAIT A BIT AND TRY AGAIN",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+    with open(LOCK_FILE, "w") as f:
+        f.write(str(os.getpid()))
+    atexit.register(release_lock)
+
+
+def release_lock():
+    """Remove the lock file on clean exit."""
+    try:
+        os.remove(LOCK_FILE)
+    except OSError:
+        pass
 
 
 def run_match(bot1: str, bot2: str, match_num: int) -> int:
@@ -50,6 +90,8 @@ def run_match(bot1: str, bot2: str, match_num: int) -> int:
 
 
 def main():
+    acquire_lock()
+
     if len(sys.argv) < 3:
         print(f"Usage: {sys.argv[0]} <bot1_name> <bot2_name> [num_trials]")
         sys.exit(1)
