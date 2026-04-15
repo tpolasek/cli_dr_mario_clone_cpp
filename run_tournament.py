@@ -141,7 +141,7 @@ def main():
 
     max_workers = min(trials, os.cpu_count() or 16)
     print(f"Tournament: {bot1} vs {bot2} — {trials} trials")
-    print(f"Running... {max_workers} threads)")
+    print(f"Running... {max_workers} threads")
 
     global _executor
     with ThreadPoolExecutor(max_workers=max_workers) as executor:

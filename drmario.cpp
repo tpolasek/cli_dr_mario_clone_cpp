@@ -474,7 +474,7 @@ static int run_player_vs_bot(const CliArgs& args) {
         }
 
         game.ticks++;
-        std::this_thread::sleep_for(std::chrono::milliseconds(((int)std::ceilf(1000.0/game_fps))));
+        std::this_thread::sleep_for(std::chrono::milliseconds(((int)std::ceil(1000.0/game_fps))));
     }
 
     if (game.music_pid > 0) kill(-game.music_pid, SIGTERM);

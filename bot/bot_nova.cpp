@@ -566,7 +566,7 @@ RobustnessResult eval_future_robustness(const PlayerBoard& board) {
 
             if (!board3.fits(board3.cap)) {
                 total -= 200'000'000LL;
-                result.min_score = std::min(result.min_score, -200'000'000LL);
+                result.min_score = std::min<int64_t>(result.min_score, -200'000'000LL);
                 count++;
                 continue;
             }
