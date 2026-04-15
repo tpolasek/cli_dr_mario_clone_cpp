@@ -93,8 +93,10 @@ def main():
                     ties += 1
 
             completed = bot1_wins + bot2_wins + ties
-            if completed % 50 == 0:
-                print(f"  Progress: {completed}/{trials} matches completed...")
+            if completed % 10 == 0:
+                print(
+                    f"  Progress: {completed}/{trials} matches completed...", flush=True
+                )
 
     # ── Final Results ──────────────────────────────────────────────
     total = bot1_wins + bot2_wins + ties
