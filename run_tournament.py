@@ -17,6 +17,7 @@ import signal
 import subprocess
 import sys
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 LOCK_FILE = "/tmp/drmario_tournament.lock"
@@ -91,6 +92,8 @@ def run_match(bot1: str, bot2: str, match_num: int) -> int:
     )
 
     # Poll so we can react to shutdown while waiting
+    start_time = time.monotonic()
+    timeout_seconds = 120  # 2 minutes
     while proc.poll() is None:
         if shutdown_event.is_set():
             proc.terminate()
@@ -100,6 +103,20 @@ def run_match(bot1: str, bot2: str, match_num: int) -> int:
                 proc.kill()
                 proc.wait()
             return -1
+        # Check if the match has exceeded the timeout
+        elapsed = time.monotonic() - start_time
+        if elapsed >= timeout_seconds:
+            print(
+                f"[Match {match_num}] Timed out after {int(elapsed)}s, killing process.",
+                file=sys.stderr,
+            )
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+            return 3  # treat as error/unexpected
         # Brief sleep to avoid busy-waiting
         threading.Event().wait(0.1)
 
@@ -139,7 +156,9 @@ def main():
     errors = 0
     lock = threading.Lock()
 
-    max_workers = min(trials, os.cpu_count() or 16)
+    cpu_count = os.cpu_count() or 8
+
+    max_workers = min(trials, cpu_count/3)
     print(f"Tournament: {bot1} vs {bot2} — {trials} trials")
     print(f"Running... {max_workers} threads")
 

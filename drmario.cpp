@@ -236,9 +236,10 @@ static CliArgs parse_args(int argc, char* argv[]) {
 // ====================== BOT VS BOT MODE ======================
 
 static int run_bot_battle(const CliArgs& args) {
-    constexpr int BATTLE_VIRUSES      = 5;
+    constexpr int BATTLE_VIRUSES      = 10;
     constexpr float BATTLE_DROP_SPEED = 40;
     constexpr int NUM_TRIALS          = 10;
+    constexpr int FAIL_TO_FINISH_GAME_PENALTY_TICKS = 4000;
 
     auto bot1 = BotRegistry::instance().create(args.bot1);
     auto bot2 = BotRegistry::instance().create(args.bot2);
@@ -248,6 +249,7 @@ static int run_bot_battle(const CliArgs& args) {
     }
 
     int wins1 = 0, wins2 = 0;
+    int bot1_ticks_loss_delta_sum = 0, bot2_ticks_loss_delta_sum = 0;
     // Use the binary's address space layout as additional entropy instead.
     unsigned int base_seed = static_cast<unsigned>(
         std::time(nullptr) ^ reinterpret_cast<uintptr_t>(&wins1));
@@ -271,19 +273,23 @@ static int run_bot_battle(const CliArgs& args) {
         int last_move1 = 0, last_move2 = 0;
         int ticks = 0;
         int anim_frame = 0;
+        int first_winner = -1;
+        int loser_ticks_delta = 0;
+
 
         const auto render_interval = std::chrono::milliseconds(1000 / RENDER_FPS);
         auto last_render_time = Clock::now();
 
-        while (!(board1.game_over || board1.game_won || board2.game_won || board2.game_over)) {
+        // This runs until both bots finish, even if one of them wins first.
+        while (!(board1.game_over ||  board2.game_over || (board1.game_won && board2.game_won))) {
             Move move1 = Move::NONE;
-            if (board1.phase == Phase::PLAYING && (ticks - last_move1 >= BOT_INPUT_TICK_RATE)) {
+            if (!board1.game_won && board1.phase == Phase::PLAYING && (ticks - last_move1 >= BOT_INPUT_TICK_RATE)) {
                 last_move1 = ticks;
                 move1 = bot1->get_move(board1);
             }
 
             Move move2 = Move::NONE;
-            if (board2.phase == Phase::PLAYING && (ticks - last_move2 >= BOT_INPUT_TICK_RATE)) {
+            if (!board2.game_won && board2.phase == Phase::PLAYING && (ticks - last_move2 >= BOT_INPUT_TICK_RATE)) {
                 last_move2 = ticks;
                 move2 = bot2->get_move(board2);
             }
@@ -291,13 +297,37 @@ static int run_bot_battle(const CliArgs& args) {
             if (board1.phase == Phase::PLAYING) board1.apply_move(move1);
             if (board2.phase == Phase::PLAYING) board2.apply_move(move2);
 
-            process_phases(board1, attacks_to_1, attacks_to_2,
+            if(!board1.game_won){
+                process_phases(board1, attacks_to_1, attacks_to_2,
                            last_drop1, last_grav1, ticks, drop1);
-            process_phases(board2, attacks_to_2, attacks_to_1,
+            }
+            if(!board2.game_won){
+                process_phases(board2, attacks_to_2, attacks_to_1,
                            last_drop2, last_grav2, ticks, drop2);
+            }
+
+            // Determine who won first.
+            if(first_winner == -1){
+                if(board1.game_won && board2.game_won){
+                    // tie
+                    first_winner = 0;
+                }
+                else{
+                    if(board1.game_won && !board2.game_won){
+                        first_winner = 1;
+                    }
+                    if(board2.game_won && !board2.game_won){
+                        first_winner = 2;
+                    }
+                }
+            }
+            else{
+                // We have a winner, count ticks for the loser
+                loser_ticks_delta++;
+            }
 
             auto now = Clock::now();
-            if (now - last_render_time >= render_interval) {
+            if (now - last_render_time >= render_interval || board1.game_over || board2.game_over|| (board1.game_won && board2.game_won)) {
                 render_game(board1, board2, attacks_to_1.size(), attacks_to_2.size(), anim_frame);
                 std::cout << "\n\033[" << (45) << ";1H\033[2K"
                           << "\033[97mTrial " << (trial + 1) << "/" << NUM_TRIALS
@@ -311,14 +341,43 @@ static int run_bot_battle(const CliArgs& args) {
             ticks++;
         }
 
-        if (board1.game_won || board2.game_over) wins1++;
-        else if (board2.game_won || board1.game_over) wins2++;
+        if(board2.game_over){
+            wins1++;
+            bot2_ticks_loss_delta_sum += FAIL_TO_FINISH_GAME_PENALTY_TICKS;
+            continue;
+        }
+        if(board1.game_over){
+            wins2++;
+            bot1_ticks_loss_delta_sum += FAIL_TO_FINISH_GAME_PENALTY_TICKS;
+            continue;
+        }
+        if (first_winner == 1){
+            wins1++;
+            bot2_ticks_loss_delta_sum += loser_ticks_delta;
+            continue;
+        }
+        if (first_winner == 2){
+            wins2++;
+            bot1_ticks_loss_delta_sum += loser_ticks_delta;
+            continue;
+        }
     }
 
     // Final results
     std::cout << "\n\n  " << NUM_TRIALS << " trials complete\n"
-              << "    \033[92m" << args.bot1 << ": " << wins1 << " wins\033[0m\n"
-              << "    \033[91m" << args.bot2 << ": " << wins2 << " wins\033[0m\n\n";
+              << "    \033[92m" << args.bot1 << ": " << wins1 << " wins\033[0m" << " (TickLossDelta/" << bot1_ticks_loss_delta_sum << ")" << "\n"
+              << "    \033[91m" << args.bot2 << ": " << wins2 << " wins\033[0m"<< " (TickLossDelta/" << bot2_ticks_loss_delta_sum << ")" << "\n\n";
+
+    // Compare loss ticks first. Then wins if they are equal
+    if(bot1_ticks_loss_delta_sum < bot2_ticks_loss_delta_sum){
+        std::cout << "  \033[92;1m" << args.bot1 << " wins the series!\033[0m\n";
+        return 1;
+    }
+
+    if(bot1_ticks_loss_delta_sum > bot2_ticks_loss_delta_sum){
+        std::cout << "  \033[92;1m" << args.bot2 << " wins the series!\033[0m\n";
+        return 2;
+    }
 
     if (wins1 > wins2) {
         std::cout << "  \033[92;1m" << args.bot1 << " wins the series!\033[0m\n";
