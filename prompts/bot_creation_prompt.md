@@ -10,10 +10,10 @@
 2. Compare your bot against the current best:
 
    ```bash
-   python3 run_tournament.py <YOUR_BOT_NAME> <BEST_BOT_NAME> 300
+   python3 run_tournament.py <YOUR_BOT_NAME> <BEST_BOT_NAME> 30 #NOTE the game actually runs 10 trials so this is 10 x 30 = 300 real-trials.
    ```
 
-   - Run exactly **300 trials**, only once per iteration.
+   - Run exactly **30 trials**, only once per iteration.
    - Set timeout to **300–600 seconds**.
    - Ignore improvements under **3%** — that's just variance (roughly ±5%).
 
