@@ -1,2 +1,1 @@
-<img width="312" height="322" alt="image" src="https://github.com/user-attachments/assets/5fa32ca6-c0df-4454-a88d-d7cf6bb7c68f" />
-
+<img width="1019" height="888" alt="dr_mario" src="https://github.com/user-attachments/assets/225238bd-8b27-4ae4-b363-f01a09160e1c" />
