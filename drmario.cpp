@@ -316,7 +316,7 @@ static int run_bot_battle(const CliArgs& args) {
                     if(board1.game_won && !board2.game_won){
                         first_winner = 1;
                     }
-                    if(board2.game_won && !board2.game_won){
+                    if(board2.game_won && !board1.game_won){
                         first_winner = 2;
                     }
                 }
@@ -341,12 +341,12 @@ static int run_bot_battle(const CliArgs& args) {
             ticks++;
         }
 
-        if(board2.game_over){
+        if(board2.game_over && !board1.game_over){
             wins1++;
             bot2_ticks_loss_delta_sum += FAIL_TO_FINISH_GAME_PENALTY_TICKS;
             continue;
         }
-        if(board1.game_over){
+        if(board1.game_over && !board2.game_over){
             wins2++;
             bot1_ticks_loss_delta_sum += FAIL_TO_FINISH_GAME_PENALTY_TICKS;
             continue;
