@@ -49,7 +49,7 @@ struct Game {
 
 void new_piece_with_speed(PlayerBoard& board, float& drop_speed) {
     board.new_piece();
-    drop_speed = std::fmax(5, drop_speed - 1.0/6.0); // 1/6 tick increment
+    drop_speed = std::fmax(5, drop_speed - 1.0/10.0); // 1/10 tick increment
 }
 
 // ====================== INPUT ======================
@@ -236,7 +236,7 @@ static CliArgs parse_args(int argc, char* argv[]) {
 // ====================== BOT VS BOT MODE ======================
 
 static int run_bot_battle(const CliArgs& args) {
-    constexpr int BATTLE_VIRUSES      = 30;
+    constexpr int BATTLE_VIRUSES      = 40;
     constexpr float BATTLE_DROP_SPEED = 40;
     constexpr int NUM_TRIALS          = 10;
     constexpr int FAIL_TO_FINISH_GAME_PENALTY_TICKS = 4000;
@@ -339,6 +339,7 @@ static int run_bot_battle(const CliArgs& args) {
                 last_render_time = now;
             }
 
+            //std::this_thread::sleep_for(std::chrono::milliseconds(((int)std::ceil(1000.0/game_fps))));
             ticks++;
         }
 
