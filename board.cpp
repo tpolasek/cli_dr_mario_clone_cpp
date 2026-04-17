@@ -168,34 +168,37 @@ bool PlayerBoard::receive_attacks(std::queue<int>& attacks) {
         if (grid[0][c].color == EMPTY)
             available.push_back(c);
 
-    // Shuffle available columns
-    for (int i = available.size() - 1; i > 0; i--) {
-        // Intentionally use std::rand because attacks sent are not deterministic
-        int j = std::rand() % (i + 1);
-        std::swap(available[i], available[j]);
-    }
-
-    // Pick non-adjacent columns from the shuffled list
+    // Find maximum non-adjacent subset in O(n) by processing each run of
+    // consecutive available columns. For a run of length n, the maximum
+    // independent set has ceil(n/2) elements. We randomize the offset for
+    // even-length runs to vary placement.
     std::vector<int> chosen;
-    for (int c : available) {
-        bool adjacent = false;
-        for (int cc : chosen)
-            if (std::abs(c - cc) == 1) { adjacent = true; break; }
-        if (!adjacent) {
-            chosen.push_back(c);
-            if ((int)chosen.size() == attacks.size()) break;
-        }
+    for (size_t i = 0; i < available.size(); ) {
+        size_t run_start = i;
+        while (i + 1 < available.size() && available[i + 1] == available[i] + 1)
+            i++;
+        size_t run_len = i - run_start + 1;
+        // For odd-length runs, offset 0 gives the maximum (ceil(n/2)).
+        // For even-length runs, both offsets 0 and 1 yield n/2 elements.
+        int offset = (run_len % 2 == 0) ? (std::rand() % 2) : 0;
+        for (size_t j = run_start + offset; j <= i; j += 2)
+            chosen.push_back(available[j]);
+        i++;
     }
 
-    // Not enough non-adjacent slots
-    if ((int)chosen.size() < attacks.size()) return false;
+    // Shuffle chosen columns so the placement order is random
+    for (size_t j = chosen.size(); j > 1; j--)
+        std::swap(chosen[j - 1], chosen[std::rand() % j]);
 
-    for (int c : chosen) {
-        grid[0][c].color = attacks.front();
-        grid[0][c].virus = false;
-        grid[0][c].capId = 0;
+    // Place attacks (up to the number of slots we found)
+    size_t count = std::min(chosen.size(), attacks.size());
+    for (size_t j = 0; j < count; j++) {
+        grid[0][chosen[j]].color = attacks.front();
+        grid[0][chosen[j]].virus = false;
+        grid[0][chosen[j]].capId = 0;
         attacks.pop();
     }
+
 
     // Discard any excess attacks
     while (!attacks.empty()) attacks.pop();
