@@ -2,13 +2,19 @@
 
 // ====================== PLAYER BOARD METHODS ======================
 
-int PlayerBoard::board_rand() {
-    unsigned int state = rng_state;
-    rng_state = rng_state * RNG_MULT + RNG_INC;
+int PlayerBoard::virus_rand() {
+    unsigned int state = rng_virus_state;
+    rng_virus_state = rng_virus_state * RNG_MULT + RNG_INC;
     return (int)(((state >> (state >> 29u)) ^ state) >> 18u);
 }
 
-int PlayerBoard::board_rnd_color() { return 1 + board_rand() % 3; }
+int PlayerBoard::attack_rand() {
+    unsigned int state = rng_attack_state;
+    rng_attack_state = rng_attack_state * RNG_MULT + RNG_INC;
+    return (int)(((state >> (state >> 29u)) ^ state) >> 18u);
+}
+
+int PlayerBoard::board_rnd_color() { return 1 + virus_rand() % 3; }
 
 void PlayerBoard::board_spawn(Capsule& c) {
     c.h1 = board_rnd_color();
@@ -186,7 +192,7 @@ bool PlayerBoard::receive_attacks(std::queue<int>& attacks) {
         size_t run_len = i - run_start + 1;
         // For odd-length runs, offset 0 gives the maximum (ceil(n/2)).
         // For even-length runs, both offsets 0 and 1 yield n/2 elements.
-        int offset = (run_len % 2 == 0) ? (std::rand() % 2) : 0;
+        int offset = (run_len % 2 == 0) ? (attack_rand() % 2) : 0;
         for (size_t j = run_start + offset; j <= i; j += 2)
             chosen.push_back(available[j]);
         i++;
@@ -194,7 +200,7 @@ bool PlayerBoard::receive_attacks(std::queue<int>& attacks) {
 
     // Shuffle chosen columns so the placement order is random
     for (size_t j = chosen.size(); j > 1; j--)
-        std::swap(chosen[j - 1], chosen[std::rand() % j]);
+        std::swap(chosen[j - 1], chosen[attack_rand() % j]);
 
     // Place attacks (up to the number of slots we found)
     size_t count = std::min(chosen.size(), attacks.size());
@@ -216,8 +222,8 @@ void PlayerBoard::place_viruses(int count) {
     count = std::min(count, (ROWS - VIRUS_FREE_ROWS) * COLS);  // guard against infinite loop
     int placed = 0;
     while (placed < count) {
-        int r = VIRUS_FREE_ROWS + board_rand() % (ROWS - VIRUS_FREE_ROWS);
-        int c = board_rand() % COLS;
+        int r = VIRUS_FREE_ROWS + virus_rand() % (ROWS - VIRUS_FREE_ROWS);
+        int c = virus_rand() % COLS;
         if (grid[r][c].color == EMPTY) {
             grid[r][c].color = board_rnd_color();
             grid[r][c].virus = true;
@@ -324,7 +330,8 @@ void PlayerBoard::init(int virus_count, unsigned int seed) {
     game_over = false;
     game_won = false;
     phase = Phase::PLAYING;
-    rng_state = seed;
+    rng_virus_state = seed;
+    rng_attack_state = seed;
     place_viruses(virus_count);
     board_spawn(nxt);
     new_piece();

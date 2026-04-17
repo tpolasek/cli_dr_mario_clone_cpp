@@ -186,10 +186,11 @@ bool process_phases(PlayerBoard &board, std::queue<int> &my_attacks,
 // ====================== CLI ARGUMENTS ======================
 
 struct CliArgs {
-  std::string bot;     // --bot <name>     (player-vs-bot)
-  std::string bot1;    // --bot1 <name>    (bot-vs-bot)
-  std::string bot2;    // --bot2 <name>    (bot-vs-bot)
-  bool battle = false; // true if --bot1 and --bot2 both set
+  std::string bot;       // --bot <name>     (player-vs-bot)
+  std::string bot1;      // --bot1 <name>    (bot-vs-bot)
+  std::string bot2;      // --bot2 <name>    (bot-vs-bot)
+  unsigned int seed = 0; // --seed <uint>    (0 means random)
+  bool battle = false;   // true if --bot1 and --bot2 both set
 };
 
 static void print_usage(const char *prog) {
@@ -202,6 +203,7 @@ static void print_usage(const char *prog) {
             << "  --bot <name>   Select bot opponent for interactive mode\n"
             << "  --bot1 <name>  Bot 1 for battle mode\n"
             << "  --bot2 <name>  Bot 2 for battle mode\n"
+            << "  --seed <uint>  Game seed for battle mode (0 = random)\n"
             << "  -h, --help     Show this help\n"
             << "\nAvailable bots:\n";
   for (const auto &entry : BotRegistry::instance().list()) {
@@ -224,6 +226,8 @@ static CliArgs parse_args(int argc, char *argv[]) {
       args.bot1 = argv[++i];
     } else if (arg == "--bot2" && i + 1 < argc) {
       args.bot2 = argv[++i];
+    } else if (arg == "--seed" && i + 1 < argc) {
+      args.seed = static_cast<unsigned>(std::stoul(argv[++i]));
     }
   }
 
@@ -266,7 +270,7 @@ static CliArgs parse_args(int argc, char *argv[]) {
 static int run_bot_battle(const CliArgs &args) {
   constexpr int BATTLE_VIRUSES = 40;
   constexpr float BATTLE_DROP_SPEED = 40;
-  constexpr int NUM_TRIALS = 10;
+  constexpr int NUM_TRIALS = 5;
   constexpr int FAIL_TO_FINISH_GAME_PENALTY_TICKS = 4000;
   constexpr int MIN_LOSS_TICK_THRESHOLD = 300; // ~5 seconds (60fps)
 
@@ -280,8 +284,11 @@ static int run_bot_battle(const CliArgs &args) {
   int wins1 = 0, wins2 = 0;
   int bot1_ticks_loss_delta_sum = 0, bot2_ticks_loss_delta_sum = 0;
   // Use the binary's address space layout as additional entropy instead.
-  unsigned int base_seed = static_cast<unsigned>(
-      std::time(nullptr) ^ reinterpret_cast<uintptr_t>(&wins1));
+  unsigned int base_seed =
+      args.seed != 0
+          ? args.seed
+          : static_cast<unsigned>(std::time(nullptr) ^
+                                  reinterpret_cast<uintptr_t>(&wins1));
 
   for (int trial = 0; trial < NUM_TRIALS && !quit_requested; trial++) {
     bot1->reset();

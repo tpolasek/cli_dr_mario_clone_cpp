@@ -56,9 +56,10 @@ struct PlayerBoard {
     Phase phase = Phase::PLAYING;
     bool game_over = false;
     bool game_won = false;
-    unsigned int rng_state = 1;
-
-    int board_rand();
+    unsigned int rng_virus_state = 1;
+    unsigned int rng_attack_state = 1;
+    int virus_rand();
+    int attack_rand();
     int board_rnd_color();
     void board_spawn(Capsule& c);
     void clear_grid();

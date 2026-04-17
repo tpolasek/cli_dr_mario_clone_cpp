@@ -72,7 +72,7 @@ def release_lock():
         pass
 
 
-def run_match(bot1: str, bot2: str, match_num: int) -> int:
+def run_match(bot1: str, bot2: str, match_num: int, seed: int) -> int:
     """Run a single drmario match and return the winner (1 or 2)."""
     if shutdown_event.is_set():
         return -1
@@ -80,9 +80,9 @@ def run_match(bot1: str, bot2: str, match_num: int) -> int:
     flipped = bool(random.random() > 0.5)
 
     if flipped:
-        cmd = f"./drmario --bot1 {bot2} --bot2 {bot1}"
+        cmd = f"./drmario --bot1 {bot2} --bot2 {bot1} --seed {seed}"
     else:
-        cmd = f"./drmario --bot1 {bot1} --bot2 {bot2}"
+        cmd = f"./drmario --bot1 {bot1} --bot2 {bot2} --seed {seed}"
     proc = subprocess.Popen(
         cmd,
         shell=True,
@@ -108,6 +108,10 @@ def run_match(bot1: str, bot2: str, match_num: int) -> int:
         if elapsed >= timeout_seconds:
             print(
                 f"[Match {match_num}] Timed out after {int(elapsed)}s, killing process.",
+                file=sys.stderr,
+            )
+            print(
+                f"[Match {match_num}] Command: {cmd}",
                 file=sys.stderr,
             )
             proc.terminate()
@@ -156,9 +160,12 @@ def main():
     errors = 0
     lock = threading.Lock()
 
+    base_seed = random.randint(0, 0xFFFFFFFF)
+    print(f"Base seed: {base_seed}")
+
     cpu_count = os.cpu_count() or 8
 
-    max_workers = min(trials, cpu_count/3)
+    max_workers = min(trials, cpu_count / 2)
     print(f"Tournament: {bot1} vs {bot2} — {trials} trials")
     print(f"Running... {max_workers} threads")
 
@@ -166,7 +173,8 @@ def main():
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         _executor = executor
         futures = {
-            executor.submit(run_match, bot1, bot2, i + 1): i + 1 for i in range(trials)
+            executor.submit(run_match, bot1, bot2, i + 1, base_seed + i): i + 1
+            for i in range(trials)
         }
 
         for future in as_completed(futures):
