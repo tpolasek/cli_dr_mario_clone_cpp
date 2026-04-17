@@ -159,7 +159,8 @@ bool PlayerBoard::gravity_step() {
 bool PlayerBoard::receive_attacks(std::queue<int>& attacks) {
     if (attacks.empty()) return true;
 
-    int count = std::min((int)attacks.size(), MAX_ATTACKS);
+    // Limit to MAX_ATTACKS
+    while (attacks.size() > MAX_ATTACKS) attacks.pop();
 
     // Collect available columns (row 0 must be empty)
     std::vector<int> available;
@@ -182,12 +183,12 @@ bool PlayerBoard::receive_attacks(std::queue<int>& attacks) {
             if (std::abs(c - cc) == 1) { adjacent = true; break; }
         if (!adjacent) {
             chosen.push_back(c);
-            if ((int)chosen.size() == count) break;
+            if ((int)chosen.size() == attacks.size()) break;
         }
     }
 
     // Not enough non-adjacent slots
-    if ((int)chosen.size() < count) return false;
+    if ((int)chosen.size() < attacks.size()) return false;
 
     for (int c : chosen) {
         grid[0][c].color = attacks.front();

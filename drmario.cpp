@@ -118,15 +118,14 @@ bool process_phases(PlayerBoard &board, std::queue<int> &my_attacks,
 
     if (ticks - last_drop <= std::ceil(drop_speed))
       return false;
-
     last_drop = ticks;
+
     Capsule t = board.cap;
     t.r++;
     if (board.fits(t)) {
       board.cap = t;
       return false;
     }
-
     board.stamp(board.cap);
 
     if (board.find_and_remove_matches() > 0) {
@@ -164,11 +163,20 @@ bool process_phases(PlayerBoard &board, std::queue<int> &my_attacks,
 
     if (board.cleared_viruses >= board.total_viruses) {
       board.game_won = true;
-    } else {
-      board.phase = Phase::PLAYING;
-      new_piece_with_speed(board, drop_speed);
-      last_drop = ticks;
+      return true;
     }
+
+    if (!my_attacks.empty()) {
+      if (!board.receive_attacks(my_attacks)) {
+        board.game_over = true;
+        return true;
+      }
+      return false;
+    }
+
+    board.phase = Phase::PLAYING;
+    new_piece_with_speed(board, drop_speed);
+    last_drop = ticks;
     return false;
   }
   }
