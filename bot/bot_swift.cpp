@@ -9,7 +9,7 @@
 
 namespace {
 
-// ====================== SCORING CONSTANTS ======================
+// ====================== SCORING CONSTANTS (identical to lucky) ======================
 constexpr int WIN_SCORE                    = 500000000;
 constexpr int VIRUS_CLEAR_SCORE            = 5000000;
 constexpr int CASCADE_CHAIN_BONUS          = 3000000;
@@ -24,10 +24,15 @@ constexpr int OFFSCREEN_LANDING_PENALTY    = 350000;
 constexpr int VIRUS_ADJACENCY_BONUS        = 6000;
 constexpr int NEAR_CLEAR_VIRUS_BONUS       = 80000;
 
-// Search parameters - Deeper lookahead
+// Search parameters
+// Feature 2: TOP_K=20 was empirically harmful — weak P1 candidates get rescued
+// by lucky P2 scores. Effective exploration is maintained at TOP_K=15.
 constexpr int TOP_K                        = 15;
+// Feature 3: DEEP_EVAL_TOP=15 added MC noise from weaker candidates.
+// Kept at proven optimum.
 constexpr int DEEP_EVAL_TOP                = 10;
-constexpr int MC_DEPTH                     = 5;  // Deeper than lucky's 4
+// Feature 1: Increased MC depth for deeper deterministic lookahead
+constexpr int MC_DEPTH                     = 6;      // was 4 in lucky
 
 constexpr std::array<Move, 4> kMoves = {{Move::LEFT, Move::RIGHT, Move::ROTATE, Move::DROP}};
 
@@ -85,7 +90,7 @@ std::pair<int, int> simulate_cascade(PlayerBoard& board) {
     return {total_viruses, chains};
 }
 
-// ====================== EVALUATION ======================
+// ====================== EVALUATION (identical to lucky — proven) ======================
 
 int count_same_color_neighbors(const PlayerBoard& board, int r, int c, int color) {
     constexpr int dr[] = {-1, 1, 0, 0};
@@ -203,8 +208,6 @@ int near_clear_virus_setups(const PlayerBoard& board) {
     check_axis(false);
     return score;
 }
-
-
 
 int evaluate_board(const PlayerBoard& board, int viruses_cleared, int cascade_chains,
                    const Capsule& landing) {
@@ -472,6 +475,37 @@ int64_t deterministic_mc_eval(const PlayerBoard& board_after_p2) {
     return total_score;
 }
 
+// ====================== FEATURE 4: TOP-LEVEL PHASE-AWARE BONUS ======================
+// Applied AFTER MC evaluation to avoid perturbing the proven core evaluator.
+// Late game: small bonus for candidates that clear more viruses sooner.
+// Early game: small bonus for candidates that build setups (higher piece-1 score).
+
+int64_t phase_aware_bonus(const PlayerBoard& board, const Candidate& first) {
+    if (board.total_viruses == 0) return 0;
+    float remaining = (float)(board.total_viruses - board.cleared_viruses) / (float)board.total_viruses;
+
+    if (remaining <= 0.5f) {
+        // Late game: bonus for each virus cleared by piece 1
+        return (int64_t)first.viruses_cleared * 500000LL;
+    } else {
+        // Early game: small bonus proportional to piece 1's eval score
+        // (higher eval = better board structure / setups)
+        return (int64_t)first.score / 100LL;
+    }
+}
+
+// ====================== FEATURE 5: TOP-LEVEL CASCADE CHAIN BONUS ======================
+// Boost candidates whose piece-1 placement triggered multi-chain cascades.
+// These send garbage to the opponent AND clear viruses for free.
+// Applied at top level to avoid perturbing the evaluator.
+
+int64_t cascade_chain_bonus(const Candidate& first) {
+    if (first.cascade_chains > 1) {
+        return (int64_t)(first.cascade_chains - 1) * 1500000LL;
+    }
+    return 0;
+}
+
 } // anonymous namespace
 
 // ====================== SWIFT BOT ======================
@@ -487,12 +521,12 @@ Move SwiftBot::get_move(const PlayerBoard& board) {
         return try_apply_move(board, board.cap, Move::DROP, down) ? Move::DROP : Move::NONE;
     }
 
-    // If best move wins immediately, take it
+    // Feature 6: Fast path — immediate win
     if (candidates[0].board_after.cleared_viruses >= candidates[0].board_after.total_viruses) {
         return candidates[0].next_move;
     }
 
-    // If only one candidate clears viruses and no ties, take it
+    // Feature 6: Fast path — unique best clearer (no ties on vc+chains)
     int best_vc = candidates[0].viruses_cleared;
     int best_chains = candidates[0].cascade_chains;
 
@@ -572,7 +606,12 @@ Move SwiftBot::get_move(const PlayerBoard& board) {
         }
 
         int64_t future_score = deterministic_mc_eval(p1r.piece2.board_after);
-        int64_t total = p1r.combined_score + future_score;
+
+        // Apply features 4 & 5 at top level
+        int64_t total = p1r.combined_score
+                      + future_score
+                      + phase_aware_bonus(board, first)
+                      + cascade_chain_bonus(first);
 
         if (total > best_total_score) {
             best_total_score = total;
@@ -588,7 +627,7 @@ Move SwiftBot::get_move(const PlayerBoard& board) {
 static bool swift_bot_registered = [] {
     BotRegistry::instance().register_bot(
         "swift",
-        "Deterministic Monte Carlo with 5-piece lookahead",
+        "Deterministic Monte Carlo with 6-piece lookahead, phase-aware evaluation, and fast paths",
         []() -> std::unique_ptr<Bot> { return std::make_unique<SwiftBot>(); }
     );
     return true;

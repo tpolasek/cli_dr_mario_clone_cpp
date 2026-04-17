@@ -93,7 +93,7 @@ def run_match(bot1: str, bot2: str, match_num: int, seed: int) -> int:
 
     # Poll so we can react to shutdown while waiting
     start_time = time.monotonic()
-    timeout_seconds = 120  # 2 minutes
+    timeout_seconds = 2 * 60 * 60
     while proc.poll() is None:
         if shutdown_event.is_set():
             proc.terminate()

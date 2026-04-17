@@ -270,7 +270,7 @@ static CliArgs parse_args(int argc, char *argv[]) {
 static int run_bot_battle(const CliArgs &args) {
   constexpr int BATTLE_VIRUSES = 40;
   constexpr float BATTLE_DROP_SPEED = 40;
-  constexpr int NUM_TRIALS = 5;
+  constexpr int NUM_TRIALS = 10;
   constexpr int FAIL_TO_FINISH_GAME_PENALTY_TICKS = 4000;
   constexpr int MIN_LOSS_TICK_THRESHOLD = 300; // ~5 seconds (60fps)
 
