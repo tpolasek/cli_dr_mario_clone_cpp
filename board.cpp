@@ -168,6 +168,12 @@ bool PlayerBoard::receive_attacks(std::queue<int>& attacks) {
         if (grid[0][c].color == EMPTY)
             available.push_back(c);
 
+    if(available.size() < attacks.size()){
+        // Not enough available columns, this means the player has lost.
+        while (!attacks.empty()) attacks.pop();
+        return false;
+    }
+
     // Find maximum non-adjacent subset in O(n) by processing each run of
     // consecutive available columns. For a run of length n, the maximum
     // independent set has ceil(n/2) elements. We randomize the offset for
@@ -200,7 +206,7 @@ bool PlayerBoard::receive_attacks(std::queue<int>& attacks) {
     }
 
 
-    // Discard any excess attacks
+    // Discard any excess attacks (sometimes we may fail to find adjacent columns)
     while (!attacks.empty()) attacks.pop();
 
     return true;
