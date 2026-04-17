@@ -236,10 +236,11 @@ static CliArgs parse_args(int argc, char* argv[]) {
 // ====================== BOT VS BOT MODE ======================
 
 static int run_bot_battle(const CliArgs& args) {
-    constexpr int BATTLE_VIRUSES      = 10;
+    constexpr int BATTLE_VIRUSES      = 30;
     constexpr float BATTLE_DROP_SPEED = 40;
     constexpr int NUM_TRIALS          = 10;
     constexpr int FAIL_TO_FINISH_GAME_PENALTY_TICKS = 4000;
+    constexpr int MIN_LOSS_TICK_THRESHOLD = 300; // ~5 seconds (60fps)
 
     auto bot1 = BotRegistry::instance().create(args.bot1);
     auto bot2 = BotRegistry::instance().create(args.bot2);
@@ -343,24 +344,31 @@ static int run_bot_battle(const CliArgs& args) {
 
         if(board2.game_over && !board1.game_over){
             wins1++;
-            bot2_ticks_loss_delta_sum += FAIL_TO_FINISH_GAME_PENALTY_TICKS;
+            bot2_ticks_loss_delta_sum += loser_ticks_delta + FAIL_TO_FINISH_GAME_PENALTY_TICKS;
             continue;
         }
         if(board1.game_over && !board2.game_over){
             wins2++;
-            bot1_ticks_loss_delta_sum += FAIL_TO_FINISH_GAME_PENALTY_TICKS;
+            bot1_ticks_loss_delta_sum += loser_ticks_delta + FAIL_TO_FINISH_GAME_PENALTY_TICKS;
             continue;
         }
+
+
         if (first_winner == 1){
-            wins1++;
+            if(loser_ticks_delta > MIN_LOSS_TICK_THRESHOLD){
+                wins1++;
+            }
             bot2_ticks_loss_delta_sum += loser_ticks_delta;
             continue;
         }
         if (first_winner == 2){
-            wins2++;
+            if(loser_ticks_delta > MIN_LOSS_TICK_THRESHOLD){
+                wins2++;
+            }
             bot1_ticks_loss_delta_sum += loser_ticks_delta;
             continue;
         }
+
     }
 
     // Final results
@@ -368,7 +376,17 @@ static int run_bot_battle(const CliArgs& args) {
               << "    \033[92m" << args.bot1 << ": " << wins1 << " wins\033[0m" << " (TickLossDelta/" << bot1_ticks_loss_delta_sum << ")" << "\n"
               << "    \033[91m" << args.bot2 << ": " << wins2 << " wins\033[0m"<< " (TickLossDelta/" << bot2_ticks_loss_delta_sum << ")" << "\n\n";
 
-    // Compare loss ticks first. Then wins if they are equal
+    if (wins1 > wins2) {
+        std::cout << "  \033[92;1m" << args.bot1 << " wins the series!\033[0m\n";
+        return 1;
+    }
+    if (wins2 > wins1) {
+        std::cout << "  \033[91;1m" << args.bot2 << " wins the series!\033[0m\n";
+        return 2;
+    }
+
+    // Tie now check ticks
+
     if(bot1_ticks_loss_delta_sum < bot2_ticks_loss_delta_sum){
         std::cout << "  \033[92;1m" << args.bot1 << " wins the series!\033[0m\n";
         return 1;
@@ -379,14 +397,7 @@ static int run_bot_battle(const CliArgs& args) {
         return 2;
     }
 
-    if (wins1 > wins2) {
-        std::cout << "  \033[92;1m" << args.bot1 << " wins the series!\033[0m\n";
-        return 1;
-    }
-    if (wins2 > wins1) {
-        std::cout << "  \033[91;1m" << args.bot2 << " wins the series!\033[0m\n";
-        return 2;
-    }
+    // Tie x2
     std::cout << "  \033[93;1mIt's a tie!\033[0m\n";
     return 0;
 }
