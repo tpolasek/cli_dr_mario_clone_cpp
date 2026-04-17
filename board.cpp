@@ -354,7 +354,6 @@ bool PlayerBoard::apply_move(Move m) {
         if (fits(t)) { cap = t; return true; }
         t.c--; if (fits(t)) { cap = t; return true; }
         t.c += 2; if (fits(t)) { cap = t; return true; }
-        t.c--; t.r--; if (fits(t)) { cap = t; return true; }
         return false;
     default: return false;
     }

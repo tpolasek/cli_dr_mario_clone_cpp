@@ -55,8 +55,6 @@ bool try_apply_move(const PlayerBoard& board, const Capsule& start, Move move, C
         if (board.fits(out)) return true;
         out = start; out.c++; out.rotate();
         if (board.fits(out)) return true;
-        out = start; out.r--; out.rotate();
-        if (board.fits(out)) return true;
         return false;
     default: return false;
     }
