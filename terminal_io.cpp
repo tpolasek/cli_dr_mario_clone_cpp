@@ -5,6 +5,18 @@
 #include <unistd.h>
 #include <poll.h>
 
+static int read_byte() {
+    struct pollfd pfd;
+    pfd.fd = STDIN_FILENO;
+    pfd.events = POLLIN;
+    if (poll(&pfd, 1, 1) > 0) {
+        char c;
+        if (read(STDIN_FILENO, &c, 1) == 1)
+            return static_cast<unsigned char>(c);
+    }
+    return -1;
+}
+
 static struct termios orig_termios;
 
 void disable_raw_mode() {
@@ -30,8 +42,25 @@ int poll_key() {
     pfd.events = POLLIN;
     if (poll(&pfd, 1, 0) > 0) {
         char c;
-        if (read(STDIN_FILENO, &c, 1) == 1)
-            return static_cast<unsigned char>(c);
+        if (read(STDIN_FILENO, &c, 1) == 1) {
+            int ch = static_cast<unsigned char>(c);
+            // Arrow keys: ESC [ A/B/C/D
+            if (ch == 0x1b) {
+                int b1 = read_byte();
+                if (b1 == '[') {
+                    int b2 = read_byte();
+                    switch (b2) {
+                        case 'A': return KEY_UP;
+                        case 'B': return KEY_DOWN;
+                        case 'C': return KEY_RIGHT;
+                        case 'D': return KEY_LEFT;
+                        default: break;
+                    }
+                }
+                // Not an arrow escape, discard (partial escape sequence)
+            }
+            return ch;
+        }
     }
     return 0;
 }

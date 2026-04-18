@@ -76,18 +76,22 @@ Move get_player_move() {
     switch (ch) {
     case 'a':
     case 'A':
+    case KEY_LEFT:
       move = Move::LEFT;
       break;
     case 'd':
     case 'D':
+    case KEY_RIGHT:
       move = Move::RIGHT;
       break;
     case 's':
     case 'S':
+    case KEY_DOWN:
       move = Move::DROP;
       break;
     case 'w':
     case 'W':
+    case KEY_UP:
       move = Move::ROTATE;
       break;
     }
@@ -378,7 +382,7 @@ static int run_bot_battle(const CliArgs &args) {
         last_render_time = now;
       }
 
-      // std::this_thread::sleep_for(std::chrono::milliseconds(((int)std::ceil(1000.0/game_fps))));
+      //std::this_thread::sleep_for(std::chrono::milliseconds(((int)std::ceil(1000.0/game_fps))));
       ticks++;
     }
 
