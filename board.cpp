@@ -207,7 +207,7 @@ bool PlayerBoard::receive_attacks(std::queue<int>& attacks) {
     for (size_t j = 0; j < count; j++) {
         grid[0][chosen[j]].color = attacks.front();
         grid[0][chosen[j]].virus = false;
-        grid[0][chosen[j]].capId = 0;
+        grid[0][chosen[j]].capId = next_cap_id++;
         attacks.pop();
     }
 
