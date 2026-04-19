@@ -381,3 +381,15 @@ void render_bot_menu(const std::vector<BotEntry>& bots) {
     std::cout << "\n    > ";
     std::cout.flush();
 }
+
+void render_mode_menu() {
+    std::cout << "    Select mode:\n"
+              << "      \033[93m[1]\033[0m  🎀  Jane Mode\n"
+              << "            \033[90mVirus: 3  Speed: Slow  Bot: Kid\033[0m\n\n"
+              << "      \033[93m[2]\033[0m  🎮  Dad Mode\n"
+              << "            \033[90mVirus: 40  Speed: Medium  Bot: Swift\033[0m\n\n"
+              << "      \033[93m[3]\033[0m  🧪  Test Mode\n"
+              << "            \033[90mVirus: 1  Speed: Very Slow  Bot: Kid\033[0m\n\n"
+              << "    > ";
+    std::cout.flush();
+}

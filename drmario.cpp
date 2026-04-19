@@ -101,13 +101,12 @@ using TimePoint = Clock::time_point;
 bool process_phases(PlayerBoard &board, std::queue<int> &my_attacks,
                     std::queue<int> &opponent_attacks, int &last_drop,
                     int &last_gravity, int ticks, float &drop_speed) {
+  if (board.cleared_viruses >= board.total_viruses) {
+    board.game_won = true;
+    return true;
+  }
   switch (board.phase) {
   case Phase::PLAYING: {
-    if (board.cleared_viruses >= board.total_viruses) {
-      board.game_won = true;
-      return true;
-    }
-
     if (ticks - last_drop <= std::ceil(drop_speed))
       return false;
     last_drop = ticks;
@@ -152,11 +151,6 @@ bool process_phases(PlayerBoard &board, std::queue<int> &my_attacks,
       return false;
 
     board.flush_cascade(opponent_attacks);
-
-    if (board.cleared_viruses >= board.total_viruses) {
-      board.game_won = true;
-      return true;
-    }
 
     if (!my_attacks.empty()) {
       if (!board.receive_attacks(my_attacks)) {
@@ -370,7 +364,7 @@ static int run_bot_battle(const CliArgs &args) {
         last_render_time = now;
       }
 
-      //std::this_thread::sleep_for(std::chrono::milliseconds(((int)std::ceil(1000.0/game_fps))));
+      // std::this_thread::sleep_for(std::chrono::milliseconds(((int)std::ceil(1000.0/game_fps))));
       ticks++;
     }
 
@@ -466,47 +460,45 @@ static int run_player_vs_bot(const CliArgs &args) {
 
   render_title();
 
+  render_mode_menu();
+
   int nv;
-  render_virus_menu();
-  if (!select_option({{'1', 2}, {'2', 10}, {'3', 20}, {'4', 30}}, nv)) {
-    render_clear_screen();
-    return 0;
-  }
-
-  render_speed_menu();
-
   int drop_speed_int;
-  // originally 40
-  if (!select_option({{'1', 60}, {'2', 24}, {'3', 12}}, drop_speed_int)) {
-    render_clear_screen();
-    return 0;
+  std::string bot_name;
+
+  int mode = 0;
+  while (mode == 0) {
+    if (quit_requested) {
+      render_clear_screen();
+      return 0;
+    }
+    int ch = poll_key();
+    if (ch == 'q' || ch == 'Q') {
+      render_clear_screen();
+      return 0;
+    }
+    if (ch == '1' || ch == '2' || ch == '3') {
+      mode = ch - '0';
+    }
+    if (mode == 0)
+      input_sleep();
   }
 
-  // ---- bot selection ----
-  std::string bot_name = args.bot;
-
-  if (bot_name.empty()) {
-    const auto &bots = BotRegistry::instance().list();
-    render_bot_menu(bots);
-
-    int bot_index = -1;
-    while (bot_index < 0) {
-      if (quit_requested) {
-        render_clear_screen();
-        return 0;
-      }
-      int ch = poll_key();
-      if (ch == 'q' || ch == 'Q') {
-        render_clear_screen();
-        return 0;
-      }
-      if (ch >= '1' && ch <= static_cast<char>('0' + (int)bots.size())) {
-        bot_index = ch - '1';
-      }
-      if (bot_index < 0)
-        input_sleep();
-    }
-    bot_name = bots[bot_index].name;
+  if (mode == 1) {
+    // Jane mode
+    nv = 3;
+    drop_speed_int = 60;
+    bot_name = "kid";
+  } else if (mode == 2) {
+    // Dad mode
+    nv = 40;
+    drop_speed_int = 50;
+    bot_name = "swift";
+  } else {
+    // Test mode
+    nv = 1;
+    drop_speed_int = 80;
+    bot_name = "kid";
   }
 
   auto bot_bfs = BotRegistry::instance().create(bot_name);
@@ -520,7 +512,8 @@ static int run_player_vs_bot(const CliArgs &args) {
   bool has_music = access("queque.mp3", F_OK) == 0;
 
   auto start_music = [&]() {
-    if (!has_music || music_pid > 0) return;
+    if (!has_music || music_pid > 0)
+      return;
     music_pid = fork();
     if (music_pid == 0) {
       setpgid(0, 0);
@@ -563,7 +556,8 @@ static int run_player_vs_bot(const CliArgs &args) {
     bot_bfs->reset();
 
     PlayerBoard player, bot_board;
-    unsigned int seed = static_cast<unsigned>(std::time(nullptr)) ^ static_cast<unsigned>(round_num);
+    unsigned int seed = static_cast<unsigned>(std::time(nullptr)) ^
+                        static_cast<unsigned>(round_num);
     player.init(virus_count, seed);
     bot_board.init(virus_count, seed);
 
@@ -624,12 +618,10 @@ static int run_player_vs_bot(const CliArgs &args) {
       if (bot_board.phase == Phase::PLAYING)
         bot_board.apply_move(bot_move);
 
-      process_phases(player, player_attacks, bot_attacks,
-                     player_last_drop, player_last_gravity, ticks,
-                     drop_speed);
-      process_phases(bot_board, bot_attacks, player_attacks,
-                     bot_last_drop, bot_last_gravity, ticks,
-                     drop_speed);
+      process_phases(player, player_attacks, bot_attacks, player_last_drop,
+                     player_last_gravity, ticks, drop_speed);
+      process_phases(bot_board, bot_attacks, player_attacks, bot_last_drop,
+                     bot_last_gravity, ticks, drop_speed);
 
       // Re-check after processing phases (cascade wins can happen here)
       if (player.game_won || bot_board.game_over) {
@@ -669,8 +661,8 @@ static int run_player_vs_bot(const CliArgs &args) {
     }
 
     // Final render of the game state
-    render_game(player, bot_board, player_attacks.size(),
-                bot_attacks.size(), anim_frame, wins, losses, round_num);
+    render_game(player, bot_board, player_attacks.size(), bot_attacks.size(),
+                anim_frame, wins, losses, round_num);
     std::cout.flush();
 
     stop_music();
@@ -701,7 +693,8 @@ static int run_player_vs_bot(const CliArgs &args) {
   int total = wins + losses;
   if (total > 0) {
     int pct = (wins * 100) / total;
-    std::cout << "\n\n  \033[97;1mFinal Record: \033[92m" << wins << " wins\033[0m"
+    std::cout << "\n\n  \033[97;1mFinal Record: \033[92m" << wins
+              << " wins\033[0m"
               << " \033[91m" << losses << " losses\033[0m"
               << " \033[93m(" << pct << "% win rate)\033[0m"
               << " over " << round_num << " rounds\n\n";
