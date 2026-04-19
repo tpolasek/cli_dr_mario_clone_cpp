@@ -672,7 +672,13 @@ static int run_player_vs_bot(const CliArgs &args) {
     // Show round-end screen
     render_round_end(player_won, wins, losses, round_num, round_num);
 
-    // Wait for any key press to continue (Q quits)
+    // Sleep 2 seconds, draining any queued inputs so they don't
+    // accidentally skip the round-end screen
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+    while (poll_key() != 0)
+      ; // drain
+
+    // Now wait for a real key press to continue (Q quits)
     while (!quit_requested) {
       int ch = poll_key();
       if (ch != 0) {
