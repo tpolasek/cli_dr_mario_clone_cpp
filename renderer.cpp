@@ -37,7 +37,8 @@ inline const char* virus_dark_bg(int c) {
 // ====================== BOARD RENDERING ======================
 
 void render_board(const PlayerBoard& board, const char* label, int x_offset,
-                  bool show_controls, int attack_count, int anim_frame)
+                  bool show_controls, int attack_count, int anim_frame,
+                  int round_num, int wins, int losses)
 {
     // ---- Build cell view buffer ----
     struct CellView { std::string rows[BH]; };
@@ -148,21 +149,19 @@ void render_board(const PlayerBoard& board, const char* label, int x_offset,
                     std::cout << "\033[91;1mAttack: " << attack_count << "\033[0m";
                 }
                 if (show_controls) {
-                    if (r == 9) {
+                    if (r == 9 && round_num > 0) {
                         std::cout << "\033[" << term_row << ";" << info_x << "H";
-                        std::cout << "\033[90mA/D  Move\033[0m";
-                    }
-                    if (r == 10) {
-                        std::cout << "\033[" << term_row << ";" << info_x << "H";
-                        std::cout << "\033[90mW    Rotate\033[0m";
+                        std::cout << "\033[90mRound:\033[0m " << round_num;
                     }
                     if (r == 11) {
                         std::cout << "\033[" << term_row << ";" << info_x << "H";
-                        std::cout << "\033[90mS    Drop\033[0m";
-                    }
-                    if (r == 12) {
-                        std::cout << "\033[" << term_row << ";" << info_x << "H";
-                        std::cout << "\033[90mQ    Quit\033[0m";
+                        int total = wins + losses;
+                        std::cout << "\033[92mW:" << wins << "\033[0m"
+                                  << " \033[91mL:" << losses << "\033[0m";
+                        if (total > 0) {
+                            int pct = (wins * 100) / total;
+                            std::cout << " \033[93m" << pct << "%\033[0m";
+                        }
                     }
                 }
             }
@@ -188,13 +187,31 @@ static const char* status_text(const PlayerBoard& player, const PlayerBoard& bot
 }
 
 void render_game(const PlayerBoard& player, const PlayerBoard& bot,
-                 int player_attacks, int bot_attacks, int& anim_frame) {
+                 int player_attacks, int bot_attacks, int& anim_frame,
+                 int wins, int losses, int round_num) {
     anim_frame++;
     std::cout << "\033[2J\033[H";
+
+    // Title with round info
     std::cout << "\033[97;1m                  DR. MARIO — VS BOT\033[0m";
+    if (round_num > 0) {
+        std::cout << "  \033[90mRound " << round_num << "\033[0m";
+    }
+
+    // Win/Loss record in the title area
+    if (wins > 0 || losses > 0) {
+        std::cout << "\033[3;1H";
+        std::cout << "      \033[92mW:" << wins << "\033[0m";
+        std::cout << " \033[91mL:" << losses << "\033[0m";
+        int total = wins + losses;
+        if (total > 0) {
+            int pct = (wins * 100) / total;
+            std::cout << "  \033[93m" << pct << "%\033[0m";
+        }
+    }
 
     // Board x positions: player at col 2, bot at col 50
-    render_board(player, "PLAYER", 2, true, player_attacks, anim_frame);
+    render_board(player, "PLAYER", 2, true, player_attacks, anim_frame, round_num, wins, losses);
     render_board(bot,      "BOT",   50, false, bot_attacks, anim_frame);
 
     // Status line below the boards
@@ -204,12 +221,121 @@ void render_game(const PlayerBoard& player, const PlayerBoard& bot,
 
     std::cout << "\033[" << status_row << ";1H" << status_text(player, bot);
 
-    // Controls footer
-    std::cout << "\033[" << (status_row + 1) << ";1H";
-    std::cout << "\033[90m     A/D Move  ·  W Rotate  ·  S Drop  ·  Q Quit\033[0m";
-
     // Park cursor out of the way
     std::cout << "\033[" << (status_row + 3) << ";1H";
+    std::cout.flush();
+}
+
+// ====================== ROUND-END SCREEN ======================
+
+void render_round_end(bool player_won, int wins, int losses, int round_num, int total_rounds) {
+    std::cout << "\033[2J\033[H";
+
+    // Box layout: 15 emojis on top/bottom (each 2 terminal cols = 30 cols).
+    // Middle lines: emoji + 26 spaces of content + emoji = 30 cols.
+    // All lines indented 10 spaces for centering.
+
+    int row = 8;
+
+    if (player_won) {
+        // === WINNER SCREEN ===
+        // Top border: 15 🏆 = 30 terminal cols
+        std::cout << "\033[" << row << ";11H\033[92;1m";
+        std::cout << "🏆🏆🏆🏆🏆🏆🏆🏆🏆🏆🏆🏆🏆🏆🏆";
+        row++;
+        // Empty middle: 🏆 + 26 spaces + 🏆
+        std::cout << "\033[" << row << ";11H";
+        std::cout << "🏆                          🏆";
+        row++;
+        // Text: 🏆 + 26 cols content + 🏆
+        // "  🎉 W I N N E R ! ! ! 🎉 " = 2+2+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+2+1 = 26
+        std::cout << "\033[" << row << ";11H";
+        std::cout << "🏆  🎉 W I N N E R ! ! ! 🎉 🏆";
+        row++;
+        // Empty middle
+        std::cout << "\033[" << row << ";11H";
+        std::cout << "🏆                          🏆";
+        row++;
+        // Bottom border
+        std::cout << "\033[" << row << ";11H";
+        std::cout << "🏆🏆🏆🏆🏆🏆🏆🏆🏆🏆🏆🏆🏆🏆🏆";
+        std::cout << "\033[0m";
+        row++;
+    } else {
+        // === LOSS SCREEN ===
+        std::cout << "\033[" << row << ";11H\033[91;1m";
+        std::cout << "💀💀💀💀💀💀💀💀💀💀💀💀💀💀💀";
+        row++;
+        std::cout << "\033[" << row << ";11H";
+        std::cout << "💀                          💀";
+        row++;
+        // "  😢 Y O U  L O S E ! 😢  " = 2+2+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+2+2 = 26
+        std::cout << "\033[" << row << ";11H";
+        std::cout << "💀  😢 Y O U  L O S E ! 😢  💀";
+        row++;
+        std::cout << "\033[" << row << ";11H";
+        std::cout << "💀                          💀";
+        row++;
+        std::cout << "\033[" << row << ";11H";
+        std::cout << "💀💀💀💀💀💀💀💀💀💀💀💀💀💀💀";
+        std::cout << "\033[0m";
+        row++;
+    }
+
+    row += 2;
+
+    // Round info
+    std::cout << "\033[" << row << ";1H";
+    std::cout << "              \033[97;1mRound " << round_num << " of " << total_rounds << "\033[0m";
+    row += 2;
+
+    // Win/Loss record
+    std::cout << "\033[" << row << ";1H";
+    std::cout << "              \033[92mWins: " << wins << "\033[0m";
+    std::cout << "  \033[91mLosses: " << losses << "\033[0m";
+    int total = wins + losses;
+    if (total > 0) {
+        int pct = (wins * 100) / total;
+        std::cout << "  \033[93mWin Rate: " << pct << "%\033[0m";
+    }
+    row += 2;
+
+    // Visual win/loss bar
+    if (total > 0) {
+        std::cout << "\033[" << row << ";1H";
+        std::cout << "              ";
+        int bar_width = 30;
+        int win_chars = (wins * bar_width) / total;
+        int loss_chars = bar_width - win_chars;
+        std::cout << "\033[92m";
+        for (int i = 0; i < win_chars; i++) std::cout << "█";
+        std::cout << "\033[91m";
+        for (int i = 0; i < loss_chars; i++) std::cout << "█";
+        std::cout << "\033[0m";
+        row += 2;
+    }
+
+    row += 1;
+
+    // Next round info
+    std::cout << "\033[" << row << ";1H";
+    if (total_rounds > round_num) {
+        int next_round = round_num + 1;
+        if (next_round % 5 == 1 && next_round > 1) {
+            std::cout << "         \033[93m⚠ +1 Virus next round! ⚠\033[0m";
+            row += 1;
+            std::cout << "\033[" << row << ";1H";
+        }
+        std::cout << "           \033[90mPress any key to continue...\033[0m";
+    } else {
+        std::cout << "           \033[90mPress any key to continue...\033[0m";
+    }
+
+    row += 2;
+    std::cout << "\033[" << row << ";1H";
+    std::cout << "           \033[90mPress Q to quit\033[0m";
+
+    std::cout << "\033[" << (row + 3) << ";1H";
     std::cout.flush();
 }
 

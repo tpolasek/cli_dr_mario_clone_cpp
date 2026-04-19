@@ -31,18 +31,6 @@ static void sigint_handler(int) { quit_requested = 1; }
 
 static int game_fps = GAME_FPS;
 
-struct Game {
-  PlayerBoard player;
-  PlayerBoard bot;
-  std::unique_ptr<Bot> bot_bfs;   // polymorphic bot (player-vs-bot mode)
-  std::queue<int> player_attacks; // attacks TO player (from bot)
-  std::queue<int> bot_attacks;    // attacks TO bot (from player)
-  float drop_speed = 24;
-  int ticks = 0;
-  int anim_frame = 0;
-  pid_t music_pid = 0;
-};
-
 // ====================== HELPERS ======================
 
 void new_piece_with_speed(PlayerBoard &board, float &drop_speed) {
@@ -451,8 +439,6 @@ static int run_bot_battle(const CliArgs &args) {
 // ====================== PLAYER VS BOT MODE ======================
 
 static int run_player_vs_bot(const CliArgs &args) {
-  Game game;
-
   signal(SIGINT, sigint_handler);
   enable_raw_mode();
   render_enter_alt_screen();
@@ -495,7 +481,6 @@ static int run_player_vs_bot(const CliArgs &args) {
     render_clear_screen();
     return 0;
   }
-  game.drop_speed = drop_speed_int;
 
   // ---- bot selection ----
   std::string bot_name = args.bot;
@@ -524,16 +509,20 @@ static int run_player_vs_bot(const CliArgs &args) {
     bot_name = bots[bot_index].name;
   }
 
-  game.bot_bfs = BotRegistry::instance().create(bot_name);
-  if (!game.bot_bfs) {
+  auto bot_bfs = BotRegistry::instance().create(bot_name);
+  if (!bot_bfs) {
     std::cerr << "Failed to create bot: " << bot_name << "\n";
     return 1;
   }
 
-  // ---- start music ----
-  if (access("queque.mp3", F_OK) == 0) {
-    game.music_pid = fork();
-    if (game.music_pid == 0) {
+  // ---- music helpers ----
+  pid_t music_pid = 0;
+  bool has_music = access("queque.mp3", F_OK) == 0;
+
+  auto start_music = [&]() {
+    if (!has_music || music_pid > 0) return;
+    music_pid = fork();
+    if (music_pid == 0) {
       setpgid(0, 0);
       while (true) {
         pid_t p = fork();
@@ -550,74 +539,174 @@ static int run_player_vs_bot(const CliArgs &args) {
         wait(nullptr);
       }
     }
-  }
+  };
 
-  // ---- init ----
-  unsigned int seed = static_cast<unsigned>(std::time(nullptr));
-  game.player.init(nv, seed);
-  game.bot.init(nv, seed);
-
-  int player_last_drop = 0;
-  int player_last_gravity = 0;
-  int bot_last_drop = 0;
-  int bot_last_gravity = 0;
-  int bot_last_move = 0;
-
-  // ---- game loop ----
-  const auto render_interval = std::chrono::milliseconds(1000 / RENDER_FPS);
-  auto last_render_time = Clock::now();
-
-  while (!(game.player.game_over || game.player.game_won || game.bot.game_won ||
-           game.bot.game_over || quit_requested)) {
-    Move player_move = Move::NONE;
-    if (game.player.phase == Phase::PLAYING) {
-      player_move = get_player_move();
-    } else {
-      player_move = get_player_drain_input_check_quit();
+  auto stop_music = [&]() {
+    if (music_pid > 0) {
+      kill(-music_pid, SIGTERM);
+      music_pid = 0;
     }
-    if (player_move == Move::QUIT)
+  };
+
+  // ---- continuous round loop ----
+  int wins = 0;
+  int losses = 0;
+  int round_num = 0;
+
+  while (!quit_requested) {
+    round_num++;
+    // +1 virus every 5 rounds (starting at round 6)
+    int virus_count = nv + ((round_num - 1) / 5);
+
+    start_music();
+
+    bot_bfs->reset();
+
+    PlayerBoard player, bot_board;
+    unsigned int seed = static_cast<unsigned>(std::time(nullptr)) ^ static_cast<unsigned>(round_num);
+    player.init(virus_count, seed);
+    bot_board.init(virus_count, seed);
+
+    std::queue<int> player_attacks;
+    std::queue<int> bot_attacks;
+
+    float drop_speed = drop_speed_int;
+    int player_last_drop = 0;
+    int player_last_gravity = 0;
+    int bot_last_drop = 0;
+    int bot_last_gravity = 0;
+    int bot_last_move = 0;
+    int ticks = 0;
+    int anim_frame = 0;
+
+    // ---- round game loop ----
+    const auto render_interval = std::chrono::milliseconds(1000 / RENDER_FPS);
+    auto last_render_time = Clock::now();
+
+    bool round_over = false;
+    bool player_won = false;
+
+    while (!quit_requested) {
+      // Check end conditions
+      if (player.game_over || bot_board.game_won) {
+        // Player lost (or bot cleared all viruses first)
+        round_over = true;
+        player_won = false;
+        break;
+      }
+      if (bot_board.game_over || player.game_won) {
+        // Player won (bot topped out or player cleared all viruses)
+        round_over = true;
+        player_won = true;
+        break;
+      }
+
+      Move player_move = Move::NONE;
+      if (player.phase == Phase::PLAYING) {
+        player_move = get_player_move();
+      } else {
+        player_move = get_player_drain_input_check_quit();
+      }
+      if (player_move == Move::QUIT) {
+        quit_requested = 1;
+        break;
+      }
+
+      Move bot_move = Move::NONE;
+      if (bot_board.phase == Phase::PLAYING &&
+          ((ticks - bot_last_move) >= BOT_INPUT_TICK_RATE)) {
+        bot_last_move = ticks;
+        bot_move = bot_bfs->get_move(bot_board);
+      }
+
+      if (player.phase == Phase::PLAYING)
+        player.apply_move(player_move);
+      if (bot_board.phase == Phase::PLAYING)
+        bot_board.apply_move(bot_move);
+
+      process_phases(player, player_attacks, bot_attacks,
+                     player_last_drop, player_last_gravity, ticks,
+                     drop_speed);
+      process_phases(bot_board, bot_attacks, player_attacks,
+                     bot_last_drop, bot_last_gravity, ticks,
+                     drop_speed);
+
+      // Re-check after processing phases (cascade wins can happen here)
+      if (player.game_won || bot_board.game_over) {
+        round_over = true;
+        player_won = true;
+        break;
+      }
+      if (player.game_over || bot_board.game_won) {
+        round_over = true;
+        player_won = false;
+        break;
+      }
+
+      auto now = Clock::now();
+      if (now - last_render_time >= render_interval) {
+        render_game(player, bot_board, player_attacks.size(),
+                    bot_attacks.size(), anim_frame, wins, losses, round_num);
+        last_render_time = now;
+      }
+
+      ticks++;
+      std::this_thread::sleep_for(
+          std::chrono::milliseconds(((int)std::ceil(1000.0 / game_fps))));
+    }
+
+    if (quit_requested)
       break;
 
-    Move bot_move = Move::NONE;
-    if (game.bot.phase == Phase::PLAYING &&
-        ((game.ticks - bot_last_move) >= BOT_INPUT_TICK_RATE)) {
-      bot_last_move = game.ticks;
-      bot_move = game.bot_bfs->get_move(game.bot);
+    if (!round_over)
+      break; // safety exit
+
+    // Update win/loss tracking
+    if (player_won) {
+      wins++;
+    } else {
+      losses++;
     }
 
-    if (game.player.phase == Phase::PLAYING)
-      game.player.apply_move(player_move);
-    if (game.bot.phase == Phase::PLAYING)
-      game.bot.apply_move(bot_move);
+    // Final render of the game state
+    render_game(player, bot_board, player_attacks.size(),
+                bot_attacks.size(), anim_frame, wins, losses, round_num);
+    std::cout.flush();
 
-    process_phases(game.player, game.player_attacks, game.bot_attacks,
-                   player_last_drop, player_last_gravity, game.ticks,
-                   game.drop_speed);
-    process_phases(game.bot, game.bot_attacks, game.player_attacks,
-                   bot_last_drop, bot_last_gravity, game.ticks,
-                   game.drop_speed);
+    stop_music();
 
-    auto now = Clock::now();
-    if (now - last_render_time >= render_interval) {
-      render_game(game.player, game.bot, game.player_attacks.size(),
-                  game.bot_attacks.size(), game.anim_frame);
-      last_render_time = now;
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    // Show round-end screen
+    render_round_end(player_won, wins, losses, round_num, round_num);
+
+    // Wait for any key press to continue (Q quits)
+    while (!quit_requested) {
+      int ch = poll_key();
+      if (ch != 0) {
+        if (ch == 'q' || ch == 'Q') {
+          quit_requested = 1;
+        }
+        break;
+      }
+      input_sleep();
     }
-
-    game.ticks++;
-    std::this_thread::sleep_for(
-        std::chrono::milliseconds(((int)std::ceil(1000.0 / game_fps))));
   }
 
-  if (game.music_pid > 0)
-    kill(-game.music_pid, SIGTERM);
+  stop_music();
 
-  render_game(game.player, game.bot, game.player_attacks.size(),
-              game.bot_attacks.size(), game.anim_frame);
-  std::cout << "\nPress 'q' to exit...\n";
-  while (poll_key() != 'q' && !quit_requested) {
-    input_sleep();
+  render_clear_screen();
+
+  // Final stats
+  int total = wins + losses;
+  if (total > 0) {
+    int pct = (wins * 100) / total;
+    std::cout << "\n\n  \033[97;1mFinal Record: \033[92m" << wins << " wins\033[0m"
+              << " \033[91m" << losses << " losses\033[0m"
+              << " \033[93m(" << pct << "% win rate)\033[0m"
+              << " over " << round_num << " rounds\n\n";
   }
+
   return 0;
 }
 
