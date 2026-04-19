@@ -7,7 +7,7 @@
  */
 
 #include "board.h"
-#include "bot/bot_ai.h"
+#include "bot/bot_bfs.h"
 #include "bot/bot_random.h"
 #include "renderer.h"
 #include "terminal_io.h"
@@ -34,7 +34,7 @@ static int game_fps = GAME_FPS;
 struct Game {
   PlayerBoard player;
   PlayerBoard bot;
-  std::unique_ptr<Bot> bot_ai;    // polymorphic bot (player-vs-bot mode)
+  std::unique_ptr<Bot> bot_bfs;   // polymorphic bot (player-vs-bot mode)
   std::queue<int> player_attacks; // attacks TO player (from bot)
   std::queue<int> bot_attacks;    // attacks TO bot (from player)
   float drop_speed = 24;
@@ -482,7 +482,7 @@ static int run_player_vs_bot(const CliArgs &args) {
 
   int nv;
   render_virus_menu();
-  if (!select_option({{'1', 5}, {'2', 10}, {'3', 20}, {'4', 30}}, nv)) {
+  if (!select_option({{'1', 2}, {'2', 10}, {'3', 20}, {'4', 30}}, nv)) {
     render_clear_screen();
     return 0;
   }
@@ -490,7 +490,8 @@ static int run_player_vs_bot(const CliArgs &args) {
   render_speed_menu();
 
   int drop_speed_int;
-  if (!select_option({{'1', 40}, {'2', 24}, {'3', 12}}, drop_speed_int)) {
+  // originally 40
+  if (!select_option({{'1', 60}, {'2', 24}, {'3', 12}}, drop_speed_int)) {
     render_clear_screen();
     return 0;
   }
@@ -523,8 +524,8 @@ static int run_player_vs_bot(const CliArgs &args) {
     bot_name = bots[bot_index].name;
   }
 
-  game.bot_ai = BotRegistry::instance().create(bot_name);
-  if (!game.bot_ai) {
+  game.bot_bfs = BotRegistry::instance().create(bot_name);
+  if (!game.bot_bfs) {
     std::cerr << "Failed to create bot: " << bot_name << "\n";
     return 1;
   }
@@ -581,7 +582,7 @@ static int run_player_vs_bot(const CliArgs &args) {
     if (game.bot.phase == Phase::PLAYING &&
         ((game.ticks - bot_last_move) >= BOT_INPUT_TICK_RATE)) {
       bot_last_move = game.ticks;
-      bot_move = game.bot_ai->get_move(game.bot);
+      bot_move = game.bot_bfs->get_move(game.bot);
     }
 
     if (game.player.phase == Phase::PLAYING)
