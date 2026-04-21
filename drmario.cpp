@@ -10,6 +10,7 @@
 #include "bot/bot_bfs.h"
 #include "bot/bot_random.h"
 #include "renderer.h"
+#include "sound.h"
 #include "terminal_io.h"
 
 #include <chrono>
@@ -17,10 +18,8 @@
 #include <cstdint>
 #include <cstdlib>
 #include <ctime>
-#include <fcntl.h>
 #include <iostream>
 #include <signal.h>
-#include <sys/wait.h>
 #include <thread>
 #include <unistd.h>
 
@@ -508,38 +507,8 @@ static int run_player_vs_bot(const CliArgs &args) {
   }
 
   // ---- music helpers ----
-  pid_t music_pid = 0;
-  bool has_music = access("queque.mp3", F_OK) == 0;
-
-  auto start_music = [&]() {
-    if (!has_music || music_pid > 0)
-      return;
-    music_pid = fork();
-    if (music_pid == 0) {
-      setpgid(0, 0);
-      while (true) {
-        pid_t p = fork();
-        if (p == 0) {
-          int null_fd = open("/dev/null", O_WRONLY);
-          if (null_fd >= 0) {
-            dup2(null_fd, STDOUT_FILENO);
-            dup2(null_fd, STDERR_FILENO);
-            close(null_fd);
-          }
-          execlp("afplay", "afplay", "queque.mp3", nullptr);
-          _exit(1);
-        }
-        wait(nullptr);
-      }
-    }
-  };
-
-  auto stop_music = [&]() {
-    if (music_pid > 0) {
-      kill(-music_pid, SIGTERM);
-      music_pid = 0;
-    }
-  };
+  MusicPlayer music;
+  bool has_music = music.is_available() && access("queque.mp3", F_OK) == 0;
 
   // ---- continuous round loop ----
   int wins = 0;
@@ -551,7 +520,8 @@ static int run_player_vs_bot(const CliArgs &args) {
     // +1 virus every 5 rounds (starting at round 6)
     int virus_count = nv + ((round_num - 1) / 5);
 
-    start_music();
+    if (has_music)
+      music.start("queque.mp3");
 
     bot_bfs->reset();
 
@@ -581,6 +551,8 @@ static int run_player_vs_bot(const CliArgs &args) {
     bool player_won = false;
 
     while (!quit_requested) {
+      auto loop_start = Clock::now();
+
       // Check end conditions
       if (player.game_over || bot_board.game_won) {
         // Player lost (or bot cleared all viruses first)
@@ -643,8 +615,14 @@ static int run_player_vs_bot(const CliArgs &args) {
       }
 
       ticks++;
-      std::this_thread::sleep_for(
-          std::chrono::milliseconds(((int)std::ceil(1000.0 / game_fps))));
+      auto frame_end = Clock::now();
+      auto frame_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+          frame_end - loop_start);
+      auto frame_target = std::chrono::milliseconds(
+          (int)std::ceil(1000.0 / game_fps));
+      if (frame_elapsed < frame_target) {
+        std::this_thread::sleep_for(frame_target - frame_elapsed);
+      }
     }
 
     if (quit_requested)
@@ -665,7 +643,7 @@ static int run_player_vs_bot(const CliArgs &args) {
                 anim_frame, wins, losses, round_num);
     std::cout.flush();
 
-    stop_music();
+    music.stop();
 
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
@@ -691,7 +669,7 @@ static int run_player_vs_bot(const CliArgs &args) {
     }
   }
 
-  stop_music();
+  music.stop();
 
   render_clear_screen();
 
