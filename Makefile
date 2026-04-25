@@ -1,6 +1,14 @@
 CXX = g++
-CXXFLAGS = -std=c++17 -O3 -I. -I/opt/homebrew/include
-LDFLAGS = -L/opt/homebrew/lib -lraylib -framework CoreVideo -framework IOKit -framework Cocoa -framework GLUT -framework OpenGL
+CXXFLAGS = -std=c++17 -O3 -I.
+
+UNAME_S := $(shell uname -s)
+
+ifeq ($(UNAME_S),Darwin)
+  CXXFLAGS += -I/opt/homebrew/include
+  LDFLAGS = -L/opt/homebrew/lib -lraylib -framework CoreVideo -framework IOKit -framework Cocoa -framework GLUT -framework OpenGL
+else
+  LDFLAGS = -lraylib -lGL -lm -ldl -lpthread -lrt
+endif
 
 TARGET = drmario
 SRC = raylib_main.cpp raylib_renderer.cpp game.cpp board.cpp sound.cpp

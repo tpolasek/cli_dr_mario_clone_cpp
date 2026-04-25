@@ -8,6 +8,7 @@
 #include "raylib_renderer.h"
 #include "constants.h"
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 
 // ====================== COLOR HELPERS ======================
