@@ -1,7 +1,7 @@
 #pragma once
 
+#include "raylib.h"
 #include <string>
-#include <sys/types.h>
 
 class MusicPlayer {
 public:
@@ -10,7 +10,7 @@ public:
 
   void start(const char *filename);
   void stop();
-
+  void update(); // call every frame
   bool is_available() const { return available_; }
 
   MusicPlayer(const MusicPlayer &) = delete;
@@ -18,6 +18,8 @@ public:
 
 private:
   bool available_;
-  std::string player_cmd_;
-  pid_t music_pid_ = 0;
+  bool playing_;
+  bool loaded_;
+  Music music_;
+  std::string current_file_;
 };

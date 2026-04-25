@@ -1,63 +1,67 @@
+#include "raylib.h"
+
+// Undef raylib color macros that conflict with our game color constants
+#undef RED
+#undef YELLOW
+#undef BLUE
+
 #include "sound.h"
 
-#include <cstdlib>
-#include <fcntl.h>
-#include <signal.h>
-#include <string>
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <unistd.h>
+MusicPlayer::MusicPlayer()
+    : available_(false), playing_(false), loaded_(false), music_({0}) {
+  InitAudioDevice();
+  available_ = IsAudioDeviceReady();
+}
 
-MusicPlayer::MusicPlayer() : available_(false) {
-  // Find an available audio player: afplay (macOS) > ffplay > mpv
-  const char *players[] = {"afplay", "ffplay", "mpv"};
-  for (const char *p : players) {
-    std::string cmd = std::string("command -v ") + p + " >/dev/null 2>&1";
-    if (system(cmd.c_str()) == 0) {
-      player_cmd_ = p;
-      available_ = true;
-      break;
-    }
+MusicPlayer::~MusicPlayer() {
+  stop();
+  if (loaded_) {
+    UnloadMusicStream(music_);
+    loaded_ = false;
+  }
+  if (IsAudioDeviceReady()) {
+    CloseAudioDevice();
   }
 }
 
-MusicPlayer::~MusicPlayer() { stop(); }
-
 void MusicPlayer::start(const char *filename) {
-  if (!available_ || music_pid_ > 0)
+  if (!available_)
     return;
 
-  music_pid_ = fork();
-  if (music_pid_ == 0) {
-    setpgid(0, 0);
-    while (true) {
-      pid_t p = fork();
-      if (p == 0) {
-        int null_fd = open("/dev/null", O_WRONLY);
-        if (null_fd >= 0) {
-          dup2(null_fd, STDOUT_FILENO);
-          dup2(null_fd, STDERR_FILENO);
-          close(null_fd);
-        }
-        if (player_cmd_ == "afplay") {
-          execlp("afplay", "afplay", filename, nullptr);
-        } else if (player_cmd_ == "ffplay") {
-          execlp("ffplay", "ffplay", "-nodisp", "-autoexit", "-loglevel",
-                 "quiet", filename, nullptr);
-        } else if (player_cmd_ == "mpv") {
-          execlp("mpv", "mpv", "--no-video", "--really-quiet", filename,
-                 nullptr);
-        }
-        _exit(1);
-      }
-      wait(nullptr);
-    }
+  // If already playing the same file, just restart
+  if (loaded_ && current_file_ == filename) {
+    SeekMusicStream(music_, 0.0f);
+    PlayMusicStream(music_);
+    playing_ = true;
+    return;
+  }
+
+  // Unload previous
+  stop();
+  if (loaded_) {
+    UnloadMusicStream(music_);
+    loaded_ = false;
+  }
+
+  music_ = LoadMusicStream(filename);
+  if (music_.stream.sampleRate != 0 || music_.frameCount != 0) {
+    music_.looping = true;
+    current_file_ = filename;
+    loaded_ = true;
+    PlayMusicStream(music_);
+    playing_ = true;
   }
 }
 
 void MusicPlayer::stop() {
-  if (music_pid_ > 0) {
-    kill(-music_pid_, SIGTERM);
-    music_pid_ = 0;
+  if (playing_ && loaded_) {
+    StopMusicStream(music_);
+    playing_ = false;
+  }
+}
+
+void MusicPlayer::update() {
+  if (playing_ && loaded_) {
+    UpdateMusicStream(music_);
   }
 }
