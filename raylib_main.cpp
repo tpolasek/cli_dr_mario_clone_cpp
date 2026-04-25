@@ -544,9 +544,8 @@ static void update_bot_battle_result(GameState &state) {
 
 // ====================== DRAWING ======================
 
-static void draw_scene(GameState &state, Texture2D bg,
+static void draw_scene(GameState &state,
                        const LayoutMetrics &layout, float time) {
-  draw_bg(bg, layout.screen_w, layout.screen_h);
 
   switch (state.scene) {
   case Scene::TITLE:
@@ -670,7 +669,9 @@ int main(int argc, char *argv[]) {
     // Draw
     float time = (float)GetTime();
     BeginDrawing();
-    draw_scene(state, bg, layout, time);
+    ClearBackground(BLACK);
+    draw_bg(bg, layout.screen_w, layout.screen_h);
+    draw_scene(state, layout, time);
     EndDrawing();
   }
 

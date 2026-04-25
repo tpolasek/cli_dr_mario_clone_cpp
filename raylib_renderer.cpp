@@ -221,13 +221,8 @@ void draw_next_piece(const PlayerBoard &board, int bx, int by, int cell_size,
 
 // ====================== TITLE SCREEN ======================
 
-void draw_title_screen(int selected, const std::vector<DecorVirus> &viruses,
+void draw_title_screen(int selected, const std::vector<DecorVirus> & /*viruses*/,
                        float time, int sw, int sh) {
-  // Draw decorative viruses
-  for (const auto &v : viruses) {
-    draw_virus_sprite((int)v.x, (int)v.y, v.size, v.color, time, v.phase);
-  }
-
   // Title
   const char *title = "DR. MARIO";
   int title_size = 64;
