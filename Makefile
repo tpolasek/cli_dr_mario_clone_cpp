@@ -21,10 +21,10 @@ GAME_SRC = raylib_main.cpp game.cpp board.cpp sound.cpp
 # Bot AI
 BOT_SRC = $(wildcard bot/*.cpp)
 # Headers
-HDR = gfx.h ui_theme.h ui_renderer.h gfx_raylib.h \
+HDR = gfx.h sprite_sheet.h ui_theme.h ui_renderer.h gfx_raylib.h \
       constants.h board.h game.h sound.h bot/bot_registry.h $(wildcard bot/bot_*.h)
 
-SRC = $(GAME_SRC) $(UI_SRC) $(GFX_SRC)
+SRC = $(GAME_SRC) $(UI_SRC) $(GFX_SRC) sprite_sheet.cpp
 
 $(TARGET): $(SRC) $(BOT_SRC) $(HDR)
 	$(CXX) $(CXXFLAGS) -o $(TARGET) $(SRC) $(BOT_SRC) $(LDFLAGS)

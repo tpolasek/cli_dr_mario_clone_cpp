@@ -76,3 +76,15 @@ void GfxRaylib::draw_texture(Tex tex, int x, int y, int w, int h) {
                    (Rectangle){(float)x, (float)y, (float)w, (float)h},
                    (Vector2){0, 0}, 0, WHITE);
 }
+
+void GfxRaylib::draw_texture_region(Tex tex,
+                                    int src_x, int src_y, int src_w, int src_h,
+                                    int dst_x, int dst_y, int dst_w, int dst_h) {
+    if (!tex)
+        return;
+    Texture2D *t = static_cast<Texture2D *>(tex);
+    DrawTexturePro(*t,
+                   (Rectangle){(float)src_x, (float)src_y, (float)src_w, (float)src_h},
+                   (Rectangle){(float)dst_x, (float)dst_y, (float)dst_w, (float)dst_h},
+                   (Vector2){0, 0}, 0, WHITE);
+}

@@ -12,6 +12,7 @@
 
 #include "gfx_raylib.h"
 #include "sound.h"
+#include "sprite_sheet.h"
 
 // Undef raylib color macros that conflict with our game color constants
 #undef RED
@@ -541,10 +542,14 @@ int main(int argc, char *argv[]) {
 
   // Init graphics backend
   GfxRaylib gfx;
-  UIRenderer renderer(gfx);
 
   // Load background texture through the abstraction
   Gfx::Tex bg_tex = gfx.load_texture("bg.png");
+
+  // Load sprite sheet for capsules and viruses
+  SpriteSheet sprites;
+  bool has_sprites = sprites.load(gfx, "dr_mario_sprites.png",
+                                    "dr_mario_sprites.def");
 
   // Init audio (raylib-specific, handled separately)
   MusicPlayer music;
@@ -554,6 +559,11 @@ int main(int argc, char *argv[]) {
 
   // Init game state
   GameState state;
+
+  // Init renderer with sprite sheet
+  UIRenderer renderer(gfx);
+  if (has_sprites)
+    renderer.set_sprite_sheet(&sprites);
 
   if (args.battle) {
     init_bot_battle(state, args);
@@ -660,6 +670,7 @@ int main(int argc, char *argv[]) {
 
   // Cleanup
   music.stop();
+  sprites.free(gfx);
   gfx.free_texture(bg_tex);
   CloseWindow();
 

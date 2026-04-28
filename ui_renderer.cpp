@@ -5,6 +5,30 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
+
+// ====================== HELPERS ======================
+
+static const char *color_char(int c) {
+    switch (c) {
+    case RED:    return "r";
+    case YELLOW: return "y";
+    case BLUE:   return "b";
+    default:     return "r";
+    }
+}
+
+// Build a sprite name into a stack buffer
+template <int N> struct SpriteName {
+    char buf[N];
+    SpriteName(const char *fmt, ...) {
+        va_list args;
+        va_start(args, fmt);
+        vsnprintf(buf, sizeof(buf), fmt, args);
+        va_end(args);
+    }
+    operator const char *() const { return buf; }
+};
 
 // ====================== DECORATIVE VIRUSES ======================
 
@@ -62,7 +86,11 @@ LayoutMetrics compute_layout(int sw, int sh) {
 
 // ====================== CONSTRUCTOR ======================
 
-UIRenderer::UIRenderer(Gfx &gfx) : gfx_(gfx) {}
+UIRenderer::UIRenderer(Gfx &gfx) : gfx_(gfx), sprites_(nullptr) {}
+
+void UIRenderer::set_sprite_sheet(const SpriteSheet *sprites) {
+    sprites_ = sprites;
+}
 
 // ====================== BACKGROUND ======================
 
@@ -78,14 +106,28 @@ void UIRenderer::draw_bg(Gfx::Tex bg_tex, int sw, int sh) {
 
 void UIRenderer::draw_virus_sprite(int cx, int cy, float radius, int color,
                                    float time, float phase) {
+    // --- Sprite path ---
+    if (sprites_) {
+        int frame = ((int)(time * 2.0f + phase) % 2) + 1;
+        SpriteName<64> name("virus_%s_%d", color_char(color), frame);
+        const SpriteRegion *sr = sprites_->get(name);
+        if (sr) {
+            int size = (int)(radius * 2);
+            gfx_.draw_texture_region(sprites_->texture(),
+                                     sr->x, sr->y, sr->w, sr->h,
+                                     cx - size / 2, cy - size / 2,
+                                     size, size);
+            return;
+        }
+    }
+
+    // --- Primitive fallback ---
     UIColor body = Theme::virus_body(color);
     UIColor legs = Theme::virus_legs(color);
 
-    // Animate legs
     float wiggle = sinf(time * 3.0f + phase) * 0.35f;
     float leg_len = radius * 0.5f;
 
-    // 4 diagonal legs
     for (int i = 0; i < 4; i++) {
         float base_angle = 3.14159265f / 4.0f + (float)i * 3.14159265f / 2.0f;
         float angle = base_angle + wiggle;
@@ -97,31 +139,27 @@ void UIRenderer::draw_virus_sprite(int cx, int cy, float radius, int color,
         gfx_.draw_line((int)sx, (int)sy, (int)ex, (int)ey, legs);
     }
 
-    // Body (filled circle)
     int body_r = (int)(radius * 0.62f);
     gfx_.draw_circle(cx, cy, body_r, body);
 
-    // Pixel-art eyes
     int eye_size = std::max(2, (int)(body_r * 0.35f));
     int pupil_size = std::max(1, eye_size / 2);
     int eye_spacing = (int)(body_r * 0.45f);
     int eye_y = cy - (int)(body_r * 0.15f);
 
-    // Left eye
     int lex = cx - eye_spacing - eye_size / 2;
     int ley = eye_y - eye_size / 2;
     gfx_.draw_rect(lex, ley, eye_size, eye_size, Theme::EYE_WHITE);
     gfx_.draw_rect(lex + pupil_size, ley + pupil_size / 2, pupil_size,
                    pupil_size, Theme::EYE_PUPIL);
 
-    // Right eye
     int rex = cx + eye_spacing - eye_size / 2;
     gfx_.draw_rect(rex, ley, eye_size, eye_size, Theme::EYE_WHITE);
     gfx_.draw_rect(rex + pupil_size, ley + pupil_size / 2, pupil_size,
                    pupil_size, Theme::EYE_PUPIL);
 }
 
-// ====================== PILL CELL (BEVELED) ======================
+// ====================== PILL CELL (BEVELED — PRIMITIVE FALLBACK) ======================
 
 void UIRenderer::draw_pill_cell(int x, int y, int w, int h, int color,
                                 bool draw_top, bool draw_bottom,
@@ -140,6 +178,44 @@ void UIRenderer::draw_pill_cell(int x, int y, int w, int h, int color,
         gfx_.draw_line(x, y + h - 1, x + w - 1, y + h - 1, dk);
     if (draw_right)
         gfx_.draw_line(x + w - 1, y, x + w - 1, y + h - 1, dk);
+}
+
+// ====================== DRAW A SINGLE CAPSULE CELL SPRITE ======================
+
+void UIRenderer::draw_single_cap_sprite(int dst_x, int dst_y, int dst_w,
+                                        int dst_h, int color) {
+    SpriteName<32> name("cap_%s", color_char(color));
+    const SpriteRegion *sr = sprites_->get(name);
+    if (sr) {
+        gfx_.draw_texture_region(sprites_->texture(),
+                                 sr->x, sr->y, sr->w, sr->h,
+                                 dst_x, dst_y, dst_w, dst_h);
+        return;
+    }
+    // Primitive fallback — draw as beveled cell with all edges
+    draw_pill_cell(dst_x, dst_y, dst_w, dst_h, color, true, true, true, true);
+}
+
+// ====================== DRAW HORIZONTAL CAPSULE SPRITE ======================
+
+bool UIRenderer::draw_hcap_sprite(int dst_x, int dst_y, int dst_w, int dst_h,
+                                  int h1, int h2) {
+    if (!sprites_)
+        return false;
+
+    // Try exact name: cap_{h1}_{h2}
+    SpriteName<32> name("cap_%s_%s", color_char(h1), color_char(h2));
+    const SpriteRegion *sr = sprites_->get(name);
+    if (sr) {
+        gfx_.draw_texture_region(sprites_->texture(),
+                                 sr->x, sr->y, sr->w, sr->h,
+                                 dst_x, dst_y, dst_w, dst_h);
+        return true;
+    }
+
+    // Try reversed: cap_{h2}_{h1} drawn mirrored — not supported without
+    // flip, so fall back to two singles
+    return false;
 }
 
 // ====================== ACTIVE CAPSULE ======================
@@ -161,16 +237,22 @@ void UIRenderer::draw_active_capsule(const Capsule &cap, int bx, int by,
         int y = by + r1 * cs + pad;
         int full_w = (max_c - min_c + 1) * cs - pad * 2;
         int h = cs - pad * 2;
-        int half_w = full_w / 2;
 
-        // Left half
-        draw_pill_cell(x, y, half_w, h, left_color,
-                       /*top=*/true, /*bottom=*/true,
-                       /*left=*/true, /*right=*/false);
-        // Right half
-        draw_pill_cell(x + half_w, y, half_w, h, right_color,
-                       /*top=*/true, /*bottom=*/true,
-                       /*left=*/false, /*right=*/true);
+        // Try the horizontal sprite first
+        if (draw_hcap_sprite(x, y, full_w, h, left_color, right_color))
+            return;
+
+        // Fallback: two halves (sprite or primitive)
+        int half_w = full_w / 2;
+        if (sprites_) {
+            draw_single_cap_sprite(x, y, half_w, h, left_color);
+            draw_single_cap_sprite(x + half_w, y, half_w, h, right_color);
+        } else {
+            draw_pill_cell(x, y, half_w, h, left_color,
+                           true, true, true, false);
+            draw_pill_cell(x + half_w, y, half_w, h, right_color,
+                           true, true, false, true);
+        }
     } else {
         // Vertical
         int min_r = std::min(r1, r2);
@@ -184,14 +266,15 @@ void UIRenderer::draw_active_capsule(const Capsule &cap, int bx, int by,
         int full_h = (max_r - min_r + 1) * cs - pad * 2;
         int half_h = full_h / 2;
 
-        // Top half
-        draw_pill_cell(x, y, w, half_h, top_color,
-                       /*top=*/true, /*bottom=*/false,
-                       /*left=*/true, /*right=*/true);
-        // Bottom half
-        draw_pill_cell(x, y + half_h, w, half_h, bottom_color,
-                       /*top=*/false, /*bottom=*/true,
-                       /*left=*/true, /*right=*/true);
+        if (sprites_) {
+            draw_single_cap_sprite(x, y, w, half_h, top_color);
+            draw_single_cap_sprite(x, y + half_h, w, half_h, bottom_color);
+        } else {
+            draw_pill_cell(x, y, w, half_h, top_color,
+                           true, false, true, true);
+            draw_pill_cell(x, y + half_h, w, half_h, bottom_color,
+                           false, true, true, true);
+        }
     }
 }
 
@@ -204,7 +287,38 @@ void UIRenderer::draw_stamped_piece(int r, int c, int color, int bx, int by,
     int y = by + r * cs + pad;
     int w = cs - pad * 2;
     int h = cs - pad * 2;
-    draw_pill_cell(x, y, w, h, color, true, true, true, true);
+
+    if (sprites_) {
+        draw_single_cap_sprite(x, y, w, h, color);
+    } else {
+        draw_pill_cell(x, y, w, h, color, true, true, true, true);
+    }
+}
+
+// ====================== DRAW CONNECTED HORIZONTAL PAIR ON BOARD ======================
+
+void UIRenderer::draw_connected_hcap(int r, int c_left, int c_right,
+                                     int color_left, int color_right,
+                                     int bx, int by, int cs) {
+    int pad = 2;
+    int x = bx + c_left * cs + pad;
+    int y = by + r * cs + pad;
+    int w = (c_right - c_left + 1) * cs - pad * 2;
+    int h = cs - pad * 2;
+
+    if (draw_hcap_sprite(x, y, w, h, color_left, color_right))
+        return;
+
+    // Fallback: draw two single cells
+    int half_w = w / 2;
+    if (sprites_) {
+        draw_single_cap_sprite(x, y, half_w, h, color_left);
+        draw_single_cap_sprite(x + half_w, y, half_w, h, color_right);
+    } else {
+        draw_pill_cell(x, y, half_w, h, color_left, true, true, true, false);
+        draw_pill_cell(x + half_w, y, half_w, h, color_right, true, true,
+                       false, true);
+    }
 }
 
 // ====================== BOARD ======================
@@ -215,7 +329,7 @@ void UIRenderer::draw_board(const PlayerBoard &board, int bx, int by,
     int bh = ROWS * cell_size;
     int frame = 4;
 
-    // Board frame (draw behind)
+    // Board frame
     gfx_.draw_rect(bx - frame, by - frame, bw + frame * 2, bh + frame * 2,
                    Theme::BORDER_BOARD);
 
@@ -232,12 +346,14 @@ void UIRenderer::draw_board(const PlayerBoard &board, int bx, int by,
         gfx_.draw_line(x, by, x, by + bh, Theme::GRID_LINE);
     }
 
-    // Draw cells
+    // Draw cells — scan left-to-right to handle horizontal capsule pairs
     for (int r = 0; r < ROWS; r++) {
-        for (int c = 0; c < COLS; c++) {
+        for (int c = 0; c < COLS; /* c advanced in loop */) {
             const Piece &p = board.grid[r][c];
-            if (p.color == EMPTY)
+            if (p.color == EMPTY) {
+                c++;
                 continue;
+            }
 
             int cx = bx + c * cell_size + cell_size / 2;
             int cy = by + r * cell_size + cell_size / 2;
@@ -246,9 +362,27 @@ void UIRenderer::draw_board(const PlayerBoard &board, int bx, int by,
                 float vr = (float)(cell_size / 2 - 2);
                 float phase = (float)(r * COLS + c) * 1.7f;
                 draw_virus_sprite(cx, cy, vr, p.color, time, phase);
-            } else {
-                draw_stamped_piece(r, c, p.color, bx, by, cell_size);
+                c++;
+                continue;
             }
+
+            // Check for horizontal connection (same capId to the right)
+            int next_c = c + 1;
+            if (next_c < COLS) {
+                const Piece &neighbor = board.grid[r][next_c];
+                if (!neighbor.virus && neighbor.color != EMPTY &&
+                    neighbor.capId == p.capId && p.capId != 0) {
+                    // Connected horizontal pair — draw as one sprite
+                    draw_connected_hcap(r, c, next_c, p.color, neighbor.color,
+                                        bx, by, cell_size);
+                    c += 2; // skip both cells
+                    continue;
+                }
+            }
+
+            // Standalone cell (or vertical connection drawn as individual)
+            draw_stamped_piece(r, c, p.color, bx, by, cell_size);
+            c++;
         }
     }
 
@@ -303,13 +437,27 @@ void UIRenderer::draw_side_panel(const char *label, const PlayerBoard &board,
                    Theme::BORDER_NEXT);
     gfx_.draw_rect(preview_x, y, preview_w, preview_h, Theme::BG_BOARD);
 
-    // Two halves side by side
+    // Draw next capsule using sprites or primitive fallback
     int hx = preview_x + 4;
     int hy = y + 4;
-    draw_pill_cell(hx, hy, preview_cell, preview_cell, board.nxt.h1, true,
-                   true, true, false);
-    draw_pill_cell(hx + preview_cell, hy, preview_cell, preview_cell,
-                   board.nxt.h2, true, true, false, true);
+    int full_w = preview_cell * 2;
+
+    if (sprites_) {
+        // Try the horizontal capsule sprite
+        if (!draw_hcap_sprite(hx, hy, full_w, preview_cell,
+                              board.nxt.h1, board.nxt.h2)) {
+            // Fallback: two single sprites
+            draw_single_cap_sprite(hx, hy, preview_cell, preview_cell,
+                                   board.nxt.h1);
+            draw_single_cap_sprite(hx + preview_cell, hy,
+                                   preview_cell, preview_cell, board.nxt.h2);
+        }
+    } else {
+        draw_pill_cell(hx, hy, preview_cell, preview_cell, board.nxt.h1,
+                       true, true, true, false);
+        draw_pill_cell(hx + preview_cell, hy, preview_cell, preview_cell,
+                       board.nxt.h2, true, true, false, true);
+    }
     y += preview_h + 16;
 
     // Divider
@@ -382,7 +530,6 @@ void UIRenderer::draw_center_hud(int wins, int losses, int player_viruses,
     int gy = cy;
     int gpad = 3;
 
-    // Grid background
     gfx_.draw_rect(gx - 4, gy - 4, grid_w + 8, grid_h + 8, Theme::BG_PANEL);
     gfx_.draw_rect_outline(gx - 4, gy - 4, grid_w + 8, grid_h + 8,
                            Theme::BORDER_PANEL);
@@ -406,7 +553,6 @@ void UIRenderer::draw_center_hud(int wins, int losses, int player_viruses,
         }
     }
 
-    // Column labels
     int label_y = gy + grid_h + 8;
     int plw = gfx_.text_width("YOU", 18);
     gfx_.draw_text(gx + (grid_cell - plw) / 2, label_y, "YOU", 18,
@@ -470,19 +616,16 @@ void UIRenderer::draw_game_screen(const PlayerBoard &player,
                                   int bot_attacks, int wins, int losses,
                                   int round_num, const LayoutMetrics &layout,
                                   float time) {
-    // Side panels
     draw_side_panel("PLAYER", player, layout.left_panel_x, layout.board_y,
                     layout.panel_w, layout.cell_size, time);
     draw_side_panel("BOT", bot, layout.right_panel_x, layout.board_y,
                     layout.panel_w, layout.cell_size, time);
 
-    // Boards
     draw_board(player, layout.left_board_x, layout.board_y, layout.cell_size,
                time);
     draw_board(bot, layout.right_board_x, layout.board_y, layout.cell_size,
                time);
 
-    // Center HUD
     int p_viruses = player.total_viruses - player.cleared_viruses;
     int b_viruses = bot.total_viruses - bot.cleared_viruses;
     draw_center_hud(wins, losses, p_viruses, b_viruses, player_attacks,
@@ -494,26 +637,22 @@ void UIRenderer::draw_game_screen(const PlayerBoard &player,
 void UIRenderer::draw_title_screen(int selected,
                                    const std::vector<DecorVirus> &viruses,
                                    float time, int sw, int sh) {
-    // Background viruses
     for (const auto &v : viruses) {
         float bob = sinf(time * 1.5f + v.phase) * 5.0f;
         draw_virus_sprite((int)v.x, (int)(v.y + bob), v.size, v.color, time,
                           v.phase);
     }
 
-    // Title
     const char *title = "DR. MARIO";
     int title_size = 64;
     int tw = gfx_.text_width(title, title_size);
     gfx_.draw_text(sw / 2 - tw / 2, 100, title, title_size, Theme::TEXT_TITLE);
 
-    // Subtitle line
     const char *sub = "- RETRO EDITION -";
     int sub_size = 22;
     int sw2 = gfx_.text_width(sub, sub_size);
     gfx_.draw_text(sw / 2 - sw2 / 2, 170, sub, sub_size, Theme::TEXT_DIM);
 
-    // Mode options
     struct Option {
         const char *name;
         const char *desc;
@@ -533,7 +672,6 @@ void UIRenderer::draw_title_screen(int selected,
     for (int i = 0; i < 3; i++) {
         int y = start_y + i * opt_h;
 
-        // Selection highlight bar
         if (i == selected) {
             int bar_w = 560;
             int bar_h = 75;
@@ -543,19 +681,16 @@ void UIRenderer::draw_title_screen(int selected,
                                    Theme::BORDER_PANEL);
         }
 
-        // Option name
         UIColor name_clr =
             (i == selected) ? Theme::GOLD : Theme::TEXT_SECONDARY;
         int nw = gfx_.text_width(opts[i].name, opt_font);
         gfx_.draw_text(sw / 2 - nw / 2, y, opts[i].name, opt_font, name_clr);
 
-        // Description
         int dw = gfx_.text_width(opts[i].desc, desc_font);
         gfx_.draw_text(sw / 2 - dw / 2, y + 38, opts[i].desc, desc_font,
                        Theme::TEXT_DIM);
     }
 
-    // Controls hint
     const char *instr = "Up/Down to select | Enter to confirm | ESC to quit";
     int instr_size = 18;
     int iw = gfx_.text_width(instr, instr_size);
@@ -567,10 +702,8 @@ void UIRenderer::draw_title_screen(int selected,
 
 void UIRenderer::draw_round_end(bool player_won, int wins, int losses,
                                 int round_num, int sw, int sh) {
-    // Dark overlay
     gfx_.draw_rect(0, 0, sw, sh, Theme::BG_OVERLAY);
 
-    // Panel card
     int card_w = 500;
     int card_h = 340;
     int card_x = sw / 2 - card_w / 2;
@@ -583,7 +716,6 @@ void UIRenderer::draw_round_end(bool player_won, int wins, int losses,
     int cx = sw / 2;
     int y = card_y + 25;
 
-    // Result text
     if (player_won) {
         const char *msg = "ROUND WIN!";
         int fnt = 52;
@@ -597,20 +729,17 @@ void UIRenderer::draw_round_end(bool player_won, int wins, int losses,
     }
     y += 65;
 
-    // Round info
     std::string rnd = fmt("Round %d", round_num);
     int rw = gfx_.text_width(rnd.c_str(), 28);
     gfx_.draw_text(cx - rw / 2, y, rnd.c_str(), 28, Theme::TEXT_PRIMARY);
     y += 40;
 
-    // W/L
     std::string w_str = fmt("Wins: %d", wins);
     std::string l_str = fmt("Losses: %d", losses);
     gfx_.draw_text(cx - 120, y, w_str.c_str(), 26, Theme::WIN_GREEN);
     gfx_.draw_text(cx + 30, y, l_str.c_str(), 26, Theme::LOSE_RED);
     y += 40;
 
-    // Win rate bar
     int total = wins + losses;
     if (total > 0) {
         int bar_w = 300;
@@ -632,7 +761,6 @@ void UIRenderer::draw_round_end(bool player_won, int wins, int losses,
 
     y += 10;
 
-    // Instructions
     const char *instr = "Any key: continue | ESC: quit";
     int ifnt = 20;
     int iw = gfx_.text_width(instr, ifnt);
@@ -649,20 +777,17 @@ void UIRenderer::draw_bot_battle_hud(const std::string &bot1_name,
     int cw = layout.center_w;
     int y = layout.board_y + 5;
 
-    // Bot names
     gfx_.draw_text(layout.left_board_x, layout.board_y - 35, bot1_name.c_str(),
                    24, Theme::WIN_GREEN);
     gfx_.draw_text(layout.right_board_x, layout.board_y - 35,
                    bot2_name.c_str(), 24, Theme::LOSE_RED);
 
-    // Trial progress
     std::string trial_str = fmt("Trial %d/%d", trial + 1, total_trials);
     int tsw = gfx_.text_width(trial_str.c_str(), 24);
     gfx_.draw_text(cx + (cw - tsw) / 2, y, trial_str.c_str(), 24,
                    Theme::TEXT_PRIMARY);
     y += 40;
 
-    // Scores
     std::string s1 = fmt("%s: %d", bot1_name.c_str(), wins1);
     std::string s2 = fmt("%s: %d", bot2_name.c_str(), wins2);
     int s1w = gfx_.text_width(s1.c_str(), 22);
@@ -678,10 +803,8 @@ void UIRenderer::draw_bot_battle_result(const std::string &bot1_name,
                                         const std::string &bot2_name,
                                         int wins1, int wins2, int sw,
                                         int sh) {
-    // Dark overlay
     gfx_.draw_rect(0, 0, sw, sh, Theme::BG_OVERLAY);
 
-    // Panel card
     int card_w = 560;
     int card_h = 320;
     int card_x = sw / 2 - card_w / 2;
@@ -694,14 +817,12 @@ void UIRenderer::draw_bot_battle_result(const std::string &bot1_name,
     int cx = sw / 2;
     int y = card_y + 20;
 
-    // Title
     const char *title = "TOURNAMENT RESULTS";
     int tf = 40;
     int tw2 = gfx_.text_width(title, tf);
     gfx_.draw_text(cx - tw2 / 2, y, title, tf, Theme::TEXT_TITLE);
     y += 60;
 
-    // Scores
     std::string s1 = fmt("%s: %d wins", bot1_name.c_str(), wins1);
     std::string s2 = fmt("%s: %d wins", bot2_name.c_str(), wins2);
     gfx_.draw_text(cx - 180, y, s1.c_str(), 28, Theme::WIN_GREEN);
@@ -709,7 +830,6 @@ void UIRenderer::draw_bot_battle_result(const std::string &bot1_name,
     gfx_.draw_text(cx - 180, y, s2.c_str(), 28, Theme::LOSE_RED);
     y += 55;
 
-    // Winner
     std::string win_str;
     UIColor win_clr;
     if (wins1 > wins2) {
@@ -728,7 +848,6 @@ void UIRenderer::draw_bot_battle_result(const std::string &bot1_name,
     gfx_.draw_text(cx - ww / 2, y, win_str.c_str(), wf, win_clr);
     y += 55;
 
-    // Instructions
     const char *instr = "Any key: title | ESC: quit";
     int ifnt = 20;
     int iw = gfx_.text_width(instr, ifnt);

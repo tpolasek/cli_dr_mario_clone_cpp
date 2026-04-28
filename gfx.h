@@ -57,7 +57,13 @@ public:
 
     virtual Tex load_texture(const char *path) = 0;
     virtual void free_texture(Tex tex) = 0;
+    // Draw full texture stretched to dest rect
     virtual void draw_texture(Tex tex, int x, int y, int w, int h) = 0;
+
+    // Draw a sub-region of a texture (sprite sheet support)
+    virtual void draw_texture_region(Tex tex,
+                                     int src_x, int src_y, int src_w, int src_h,
+                                     int dst_x, int dst_y, int dst_w, int dst_h) = 0;
 };
 
 // ====================== FORMAT HELPER ======================

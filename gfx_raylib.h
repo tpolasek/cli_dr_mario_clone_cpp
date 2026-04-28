@@ -29,6 +29,9 @@ class GfxRaylib : public Gfx {
     Tex load_texture(const char *path) override;
     void free_texture(Tex tex) override;
     void draw_texture(Tex tex, int x, int y, int w, int h) override;
+    void draw_texture_region(Tex tex,
+                             int src_x, int src_y, int src_w, int src_h,
+                             int dst_x, int dst_y, int dst_w, int dst_h) override;
 
   private:
     static Color to_raylib(UIColor c);

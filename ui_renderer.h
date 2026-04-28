@@ -1,6 +1,7 @@
 #pragma once
 
 #include "gfx.h"
+#include "sprite_sheet.h"
 #include "board.h"
 #include <string>
 #include <vector>
@@ -47,6 +48,9 @@ class UIRenderer {
   public:
     explicit UIRenderer(Gfx &gfx);
 
+    // Sprite sheet (optional — enables sprite-based rendering)
+    void set_sprite_sheet(const SpriteSheet *sprites);
+
     // Background
     void draw_bg(Gfx::Tex bg_tex, int sw, int sh);
 
@@ -83,12 +87,20 @@ class UIRenderer {
 
   private:
     Gfx &gfx_;
+    const SpriteSheet *sprites_;
 
     // Internal helpers
     void draw_virus_sprite(int cx, int cy, float radius, int color, float time,
                            float phase);
     void draw_pill_cell(int x, int y, int w, int h, int color, bool top,
                         bool bottom, bool left, bool right);
+    void draw_single_cap_sprite(int dst_x, int dst_y, int dst_w, int dst_h,
+                                 int color);
+    bool draw_hcap_sprite(int dst_x, int dst_y, int dst_w, int dst_h,
+                          int h1, int h2);
     void draw_active_capsule(const Capsule &cap, int bx, int by, int cs);
     void draw_stamped_piece(int r, int c, int color, int bx, int by, int cs);
+    void draw_connected_hcap(int r, int c_left, int c_right,
+                             int color_left, int color_right,
+                             int bx, int by, int cs);
 };
