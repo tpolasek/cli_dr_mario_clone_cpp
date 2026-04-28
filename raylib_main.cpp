@@ -443,6 +443,11 @@ static void update_round_end(GameState &state) {
       state.scene = Scene::QUIT;
       return;
     }
+    // Check if match is over (first to MATCH_WINS)
+    if (state.wins >= MATCH_WINS || state.losses >= MATCH_WINS) {
+      init_title(state);
+      return;
+    }
     // Any other key → next round
     init_round(state);
     state.scene = Scene::GAME;

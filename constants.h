@@ -16,6 +16,7 @@ constexpr int MAX_ATTACKS        = 4;   // max garbage pieces received at once
 constexpr int VIRUS_FREE_ROWS    = 4;   // top rows that never contain viruses
 constexpr int MIN_CASCADE_ATTACK = 2;   // cascade chain length to trigger attack
 constexpr int SCORE_PER_PIECE    = 10;  // score awarded per cleared piece
+constexpr int MATCH_WINS        = 5;   // first to this many wins
 
 // ====================== RNG ======================
 constexpr unsigned int RNG_MULT = 1103515245u;

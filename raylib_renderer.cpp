@@ -62,8 +62,8 @@ LayoutMetrics compute_layout(int sw, int sh) {
   m.screen_w = sw;
   m.screen_h = sh;
 
-  float board_left_pct = 0.10f;
-  float board_right_pct = 0.10f;
+  float board_left_pct = 0.2f;
+  float board_right_pct = 0.2f;
   float board_vert_pct = 0.82f;
 
   m.cell_size = (int)(sh * board_vert_pct) / ROWS;
@@ -139,16 +139,16 @@ void draw_board(const PlayerBoard &board, int bx, int by, int cell_size,
   // Board background (semi-transparent dark)
   DrawRectangleRounded((Rectangle){(float)(bx - 4), (float)(by - 4),
                                     (float)(bw + 8), (float)(bh + 8)},
-                        0.03f, 4, (Color){0, 0, 0, 170});
+                        0.03f, 4, (Color){20, 20, 20, 255});
 
   // Grid lines
   for (int r = 0; r <= ROWS; r++) {
     DrawLine(bx, by + r * cell_size, bx + bw, by + r * cell_size,
-             (Color){255, 255, 255, 25});
+             (Color){60, 60, 60, 255});
   }
   for (int c = 0; c <= COLS; c++) {
     DrawLine(bx + c * cell_size, by, bx + c * cell_size, by + bh,
-             (Color){255, 255, 255, 25});
+             (Color){60, 60, 60, 255});
   }
 
   // Draw cells
@@ -187,7 +187,7 @@ void draw_board(const PlayerBoard &board, int bx, int by, int cell_size,
   DrawRectangleRoundedLines(
       (Rectangle){(float)(bx - 4), (float)(by - 4), (float)(bw + 8),
                   (float)(bh + 8)},
-      0.03f, 4, (Color){255, 255, 255, 100});
+      0.03f, 4, (Color){180, 180, 180, 255});
 }
 
 // ====================== NEXT PIECE PREVIEW ======================
@@ -198,19 +198,27 @@ void draw_next_piece(const PlayerBoard &board, int bx, int by, int cell_size,
   int box_w = preview_cell * 3;
   int box_h = preview_cell * 2 + 30;
 
+  // Center horizontally on the board
+  int board_w = COLS * cell_size;
+  int cx = bx + (board_w - box_w) / 2;
+
   // Label
-  DrawText(label, bx, by - box_h - 25, 24, RAYWHITE);
+  int label_w = MeasureText(label, 24);
+  DrawText(label, bx + (board_w - label_w) / 2, by - box_h - 25, 24, RAYWHITE);
+
+  // Fill gap between border and content with black
+  DrawRectangle(cx - 4, by - box_h - 4, box_w + 8, box_h + 8, BLACK);
 
   // Box background
-  DrawRectangleRounded((Rectangle){(float)bx, (float)(by - box_h),
+  DrawRectangleRounded((Rectangle){(float)cx, (float)(by - box_h),
                                     (float)box_w, (float)box_h},
-                        0.1f, 4, (Color){0, 0, 0, 150});
+                        0.1f, 4, (Color){30, 30, 30, 255});
 
   // "NEXT" text
-  DrawText("NEXT", bx + 8, by - box_h + 4, 18, GRAY);
+  DrawText("NEXT", cx + 8, by - box_h + 4, 18, GRAY);
 
   // Draw the two halves side by side
-  int nx = bx + (box_w - preview_cell * 2) / 2;
+  int nx = cx + (box_w - preview_cell * 2) / 2;
   int ny = by - box_h + 26;
   int p = 2;
 
@@ -218,6 +226,20 @@ void draw_next_piece(const PlayerBoard &board, int bx, int by, int cell_size,
                 pill_color(board.nxt.h1));
   DrawRectangle(nx + preview_cell + p, ny + p, preview_cell - p * 2,
                 preview_cell - p * 2, pill_color(board.nxt.h2));
+
+  // Border (top, left, right only — bottom meets the board)
+  Color border_clr = {180, 180, 180, 255};
+  float thick = 2.0f;
+  int bx1 = cx - 4;
+  int by1 = by - box_h - 4;
+  int bx2 = cx + box_w + 4;
+  int by2 = by + 4;
+  // Top
+  DrawLineEx((Vector2){(float)bx1, (float)by1}, (Vector2){(float)bx2, (float)by1}, thick, border_clr);
+  // Left
+  DrawLineEx((Vector2){(float)bx1, (float)by1}, (Vector2){(float)bx1, (float)by2}, thick, border_clr);
+  // Right
+  DrawLineEx((Vector2){(float)bx2, (float)by1}, (Vector2){(float)bx2, (float)by2}, thick, border_clr);
 }
 
 // ====================== TITLE SCREEN ======================
@@ -278,6 +300,59 @@ void draw_title_screen(int selected, const std::vector<DecorVirus> & /*viruses*/
            (Color){120, 120, 120, 255});
 }
 
+// ====================== WINNERS GRID ======================
+
+void draw_winners_grid(int wins, int losses, const LayoutMetrics &layout) {
+  int grid_cell = (int)(layout.cell_size * 1.5f);
+  int cols = 2;
+  int rows = MATCH_WINS;
+  int grid_w = cols * grid_cell;
+  int grid_h = rows * grid_cell;
+  int pad = 3;
+
+  // Center horizontally between boards, vertically in middle
+  int center_x = (layout.left_x + layout.board_w + layout.right_x) / 2;
+  int grid_x = center_x - grid_w / 2;
+  int grid_y = layout.left_y + layout.board_h / 2 - grid_h / 2;
+
+  // "Winners" label
+  const char *label = "Winners";
+  int label_w = MeasureText(label, 24);
+  DrawText(label, center_x - label_w / 2, grid_y - 30, 24, RAYWHITE);
+
+  // Background
+  DrawRectangle(grid_x - 4, grid_y - 4, grid_w + 8, grid_h + 8, BLACK);
+
+  // Grid cells - fill from bottom up
+  for (int r = 0; r < rows; r++) {
+    for (int c = 0; c < cols; c++) {
+      int cell_x = grid_x + c * grid_cell + pad;
+      int cell_y = grid_y + r * grid_cell + pad;
+      int cell_w = grid_cell - pad * 2;
+      int cell_h = grid_cell - pad * 2;
+
+      // Empty cell background
+      DrawRectangle(cell_x, cell_y, cell_w, cell_h, (Color){40, 40, 40, 255});
+
+      // Fill from bottom: row 0 is bottom
+      int row_from_bottom = rows - 1 - r;
+
+      // Left column = player wins
+      if (c == 0 && row_from_bottom < wins) {
+        DrawRectangle(cell_x, cell_y, cell_w, cell_h, (Color){255, 220, 50, 255});
+      }
+      // Right column = bot wins (losses)
+      if (c == 1 && row_from_bottom < losses) {
+        DrawRectangle(cell_x, cell_y, cell_w, cell_h, (Color){255, 80, 80, 255});
+      }
+    }
+  }
+
+  // Border
+  DrawRectangleLines(grid_x - 4, grid_y - 4, grid_w + 8, grid_h + 8,
+                     (Color){180, 180, 180, 255});
+}
+
 // ====================== GAME HUD ======================
 
 void draw_game_hud(const PlayerBoard &player, const PlayerBoard &bot,
@@ -289,59 +364,57 @@ void draw_game_hud(const PlayerBoard &player, const PlayerBoard &bot,
   draw_next_piece(bot, layout.right_x, layout.right_y, layout.cell_size,
                   "BOT");
 
-  // Center HUD between boards
+  // Winners grid
+  draw_winners_grid(wins, losses, layout);
+
+  // Virus counters under Winners (2x1 grid, same style as Winners)
+  int grid_cell = (int)(layout.cell_size * 1.5f);
+  int grid_w = 2 * grid_cell;
+  int grid_h = MATCH_WINS * grid_cell;
   int center_x = (layout.left_x + layout.board_w + layout.right_x) / 2;
-  int center_y = layout.left_y + 20;
-  int font = 22;
+  int grid_x = center_x - grid_w / 2;
+  int grid_y = layout.left_y + layout.board_h / 2 - grid_h / 2;
+  int pad = 3;
 
-  // Round
-  DrawText(TextFormat("Round %d", round_num), center_x - 40, center_y, font,
-           RAYWHITE);
+  int virus_section_y = grid_y + grid_h + 20;
+  int virus_grid_w = 2 * grid_cell;
+  int virus_grid_h = 1 * grid_cell;
+  int virus_grid_x = center_x - virus_grid_w / 2;
+  int virus_grid_y = virus_section_y + 30;
 
-  // Scores
-  center_y += 40;
-  DrawText(TextFormat("Score: %d", player.score), center_x - 50, center_y,
-           font, (Color){150, 255, 150, 255});
+  // "Viruses" label
+  const char *virus_label = "Viruses";
+  int virus_label_w = MeasureText(virus_label, 24);
+  DrawText(virus_label, center_x - virus_label_w / 2, virus_section_y, 24, RAYWHITE);
 
-  center_y += 30;
-  DrawText(TextFormat("Score: %d", bot.score), center_x - 50, center_y, font,
-           (Color){255, 150, 150, 255});
+  // Background
+  DrawRectangle(virus_grid_x - 4, virus_grid_y - 4, virus_grid_w + 8, virus_grid_h + 8, BLACK);
 
-  // Virus counts
-  center_y += 50;
+  // Player viruses (left cell)
   int p_rem = player.total_viruses - player.cleared_viruses;
-  DrawText(TextFormat("Virus: %d/%d", p_rem, player.total_viruses),
-           center_x - 50, center_y, font, (Color){150, 255, 150, 255});
+  Color p_text_clr = (p_rem > 5) ? (Color){100, 255, 100, 255} : (Color){255, 80, 80, 255};
+  int p_cell_x = virus_grid_x + pad;
+  int p_cell_y = virus_grid_y + pad;
+  int cell_w = grid_cell - pad * 2;
+  int cell_h = virus_grid_h - pad * 2;
+  DrawRectangle(p_cell_x, p_cell_y, cell_w, cell_h, (Color){40, 40, 40, 255});
+  const char *p_text = TextFormat("%d", p_rem);
+  int p_text_w = MeasureText(p_text, 24);
+  DrawText(p_text, p_cell_x + cell_w / 2 - p_text_w / 2, p_cell_y + cell_h / 2 - 12, 24, p_text_clr);
 
-  center_y += 30;
+  // Bot viruses (right cell)
   int b_rem = bot.total_viruses - bot.cleared_viruses;
-  DrawText(TextFormat("Virus: %d/%d", b_rem, bot.total_viruses), center_x - 50,
-           center_y, font, (Color){255, 150, 150, 255});
+  Color b_text_clr = (b_rem > 5) ? (Color){100, 255, 100, 255} : (Color){255, 80, 80, 255};
+  int b_cell_x = virus_grid_x + grid_cell + pad;
+  int b_cell_y = virus_grid_y + pad;
+  DrawRectangle(b_cell_x, b_cell_y, cell_w, cell_h, (Color){40, 40, 40, 255});
+  const char *b_text = TextFormat("%d", b_rem);
+  int b_text_w = MeasureText(b_text, 24);
+  DrawText(b_text, b_cell_x + cell_w / 2 - b_text_w / 2, b_cell_y + cell_h / 2 - 12, 24, b_text_clr);
 
-  // Attack indicators
-  if (player_attacks > 0) {
-    center_y += 50;
-    DrawText(TextFormat("Attack: %d", player_attacks), center_x - 40,
-             center_y, 24, (Color){255, 80, 80, 255});
-  }
-  if (bot_attacks > 0) {
-    center_y += 30;
-    DrawText(TextFormat("Attack: %d", bot_attacks), center_x - 40, center_y,
-             24, (Color){255, 80, 80, 255});
-  }
-
-  // W/L record
-  int record_y = layout.left_y + layout.board_h - 80;
-  DrawText(TextFormat("W: %d", wins), center_x - 40, record_y, font,
-           (Color){100, 255, 100, 255});
-  DrawText(TextFormat("L: %d", losses), center_x + 20, record_y, font,
-           (Color){255, 100, 100, 255});
-  int total = wins + losses;
-  if (total > 0) {
-    int pct = (wins * 100) / total;
-    DrawText(TextFormat("%d%%", pct), center_x + 80, record_y, font,
-             (Color){255, 255, 100, 255});
-  }
+  // Border
+  DrawRectangleLines(virus_grid_x - 4, virus_grid_y - 4, virus_grid_w + 8, virus_grid_h + 8,
+                     (Color){180, 180, 180, 255});
 }
 
 // ====================== ROUND END SCREEN ======================

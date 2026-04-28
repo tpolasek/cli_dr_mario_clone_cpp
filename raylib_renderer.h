@@ -51,6 +51,7 @@ void draw_next_piece(const PlayerBoard &board, int bx, int by, int cell_size,
                      const char *label);
 void draw_title_screen(int selected, const std::vector<DecorVirus> &viruses,
                        float time, int sw, int sh);
+void draw_winners_grid(int wins, int losses, const LayoutMetrics &layout);
 void draw_game_hud(const PlayerBoard &player, const PlayerBoard &bot,
                    int player_attacks, int bot_attacks, int wins, int losses,
                    int round_num, const LayoutMetrics &layout, float time);
