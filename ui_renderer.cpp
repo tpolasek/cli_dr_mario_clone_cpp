@@ -73,8 +73,20 @@ LayoutMetrics compute_layout(int sw, int sh) {
     m.left_panel_x = margin;
     m.left_board_x = margin + m.panel_w + gap;
 
-    // Right board + side panel (symmetric)
-    m.right_board_x = sw - margin - m.panel_w - gap - m.board_w;
+    // Right board + side panel — cap center gap so boards are closer
+    int left_block = margin + m.panel_w + gap + m.board_w;
+    int right_block = m.board_w + gap + m.panel_w + margin;
+    int max_center_gap = (int)(sw * 0.12f); // ~230px at 1920
+    int natural_center_gap = sw - left_block - right_block;
+    int center_gap = std::min(natural_center_gap, max_center_gap);
+
+    // Center the entire layout horizontally
+    int total_width = left_block + center_gap + right_block;
+    int x_offset = (sw - total_width) / 2;
+
+    m.left_panel_x = x_offset;
+    m.left_board_x = x_offset + m.panel_w + gap;
+    m.right_board_x = m.left_board_x + m.board_w + center_gap;
     m.right_panel_x = m.right_board_x + m.board_w + gap;
 
     // Center HUD fills the gap between boards
@@ -474,16 +486,7 @@ void UIRenderer::draw_side_panel(const char *label, const PlayerBoard &board,
 
     int y = py + frame + 10;
 
-    // Label (PLAYER / BOT)
-    int label_w = gfx_.text_width(label, 24);
-    gfx_.draw_text(content_x + (content_w - label_w) / 2, y, label, 24,
-                   Theme::TEXT_PRIMARY);
-    y += 36;
-
-    // Divider line
-    gfx_.draw_line(content_x, y, content_x + content_w, y,
-                   Theme::BORDER_PANEL);
-    y += 10;
+    // (Label removed)
 
     // "NEXT" label
     const char *next_label = "NEXT";
@@ -545,22 +548,6 @@ void UIRenderer::draw_side_panel(const char *label, const PlayerBoard &board,
                    v_clr);
     y += 36;
 
-    // Divider
-    gfx_.draw_line(content_x, y, content_x + content_w, y,
-                   Theme::BORDER_PANEL);
-    y += 10;
-
-    // Score
-    const char *s_label = "SCORE";
-    int slw = gfx_.text_width(s_label, 18);
-    gfx_.draw_text(content_x + (content_w - slw) / 2, y, s_label, 18,
-                   Theme::TEXT_SECONDARY);
-    y += 22;
-
-    std::string s_str = std::to_string(board.score);
-    int ssw = gfx_.text_width(s_str.c_str(), 24);
-    gfx_.draw_text(content_x + (content_w - ssw) / 2, y, s_str.c_str(), 24,
-                   Theme::GOLD);
 }
 
 // ====================== CENTER HUD ======================
@@ -571,29 +558,25 @@ void UIRenderer::draw_center_hud(int wins, int losses, int player_viruses,
                                  const LayoutMetrics &layout) {
     int cx = layout.center_x;
     int cw = layout.center_w;
-    int cy = layout.board_y;
-
-    // --- Round number ---
-    std::string round_str = fmt("ROUND %d", round_num);
-    int rsw = gfx_.text_width(round_str.c_str(), 28);
-    gfx_.draw_text(cx + (cw - rsw) / 2, cy + 5, round_str.c_str(), 28,
-                   Theme::TEXT_PRIMARY);
-    cy += 45;
 
     // --- Winners grid ---
-    const char *wlabel = "Winners";
-    int wlw = gfx_.text_width(wlabel, 22);
-    gfx_.draw_text(cx + (cw - wlw) / 2, cy, wlabel, 22, Theme::TEXT_PRIMARY);
-    cy += 28;
-
     int grid_cell = (int)(layout.cell_size * 1.3f);
     int grid_cols = 2;
     int grid_rows = MATCH_WINS;
     int grid_w = grid_cols * grid_cell;
     int grid_h = grid_rows * grid_cell;
     int gx = cx + (cw - grid_w) / 2;
-    int gy = cy;
     int gpad = 3;
+
+    // Position grid so its bottom (+ padding) aligns with board bottom
+    int board_bottom = layout.board_y + layout.board_h;
+    int gy = board_bottom - grid_h - 4;
+
+    // --- Round number (just above the grid) ---
+    std::string round_str = fmt("ROUND %d", round_num);
+    int rsw = gfx_.text_width(round_str.c_str(), 28);
+    gfx_.draw_text(cx + (cw - rsw) / 2, gy - 40, round_str.c_str(), 28,
+                   Theme::TEXT_PRIMARY);
 
     gfx_.draw_rect(gx - 4, gy - 4, grid_w + 8, grid_h + 8, Theme::BG_PANEL);
     gfx_.draw_rect_outline(gx - 4, gy - 4, grid_w + 8, grid_h + 8,
@@ -618,59 +601,22 @@ void UIRenderer::draw_center_hud(int wins, int losses, int player_viruses,
         }
     }
 
-    int label_y = gy + grid_h + 8;
-    int plw = gfx_.text_width("YOU", 18);
-    gfx_.draw_text(gx + (grid_cell - plw) / 2, label_y, "YOU", 18,
-                   Theme::WIN_GREEN);
-    int blw = gfx_.text_width("BOT", 18);
-    gfx_.draw_text(gx + grid_cell + (grid_cell - blw) / 2, label_y, "BOT", 18,
-                   Theme::LOSE_RED);
-
-    cy = gy + grid_h + 40;
-
-    // --- Record ---
-    std::string rec_str = fmt("%d - %d", wins, losses);
-    int recw = gfx_.text_width(rec_str.c_str(), 24);
-    gfx_.draw_text(cx + (cw - recw) / 2, cy, rec_str.c_str(), 24,
-                   Theme::TEXT_PRIMARY);
-    cy += 35;
-
-    // --- Win rate bar ---
-    int total = wins + losses;
-    if (total > 0) {
-        int bar_w = cw - 40;
-        int bar_h = 16;
-        int bar_x = cx + 20;
-        int win_w = (wins * bar_w) / total;
-
-        gfx_.draw_rect(bar_x, cy, win_w, bar_h, Theme::WIN_GREEN);
-        gfx_.draw_rect(bar_x + win_w, cy, bar_w - win_w, bar_h,
-                       Theme::LOSE_RED);
-        gfx_.draw_rect_outline(bar_x, cy, bar_w, bar_h, Theme::BORDER_PANEL);
-
-        int pct = (wins * 100) / total;
-        std::string pct_str = fmt("%d%%", pct);
-        gfx_.draw_text(bar_x + bar_w + 8, cy - 2, pct_str.c_str(), 20,
-                       Theme::GOLD);
-        cy += 30;
-    }
-
-    cy += 15;
+    int ay = board_bottom + 10;
 
     // --- Attack indicators ---
     if (player_attacks > 0) {
         std::string atk_str = fmt(">> %d ATTACK >>", player_attacks);
         int asw = gfx_.text_width(atk_str.c_str(), 20);
-        gfx_.draw_text(cx + (cw - asw) / 2, cy, atk_str.c_str(), 20,
+        gfx_.draw_text(cx + (cw - asw) / 2, ay, atk_str.c_str(), 20,
                        Theme::ATTACK_RED);
-        cy += 28;
+        ay += 28;
     }
     if (bot_attacks > 0) {
         std::string atk_str = fmt("<< %d ATTACK <<", bot_attacks);
         int asw = gfx_.text_width(atk_str.c_str(), 20);
-        gfx_.draw_text(cx + (cw - asw) / 2, cy, atk_str.c_str(), 20,
+        gfx_.draw_text(cx + (cw - asw) / 2, ay, atk_str.c_str(), 20,
                        Theme::ATTACK_RED);
-        cy += 28;
+        ay += 28;
     }
 }
 
@@ -765,71 +711,49 @@ void UIRenderer::draw_title_screen(int selected,
 
 // ====================== ROUND END OVERLAY ======================
 
-void UIRenderer::draw_round_end(bool player_won, int wins, int losses,
-                                int round_num, int sw, int sh) {
-    gfx_.draw_rect(0, 0, sw, sh, Theme::BG_OVERLAY);
+void UIRenderer::draw_round_end(bool player_won,
+                                const LayoutMetrics &layout) {
+    // Draw a small overlay card centered on each board
+    auto draw_card = [&](int board_x, int board_y, int board_w, int board_h,
+                        const char *msg, UIColor clr) {
+        // Semi-transparent overlay on the board
+        gfx_.draw_rect(board_x, board_y, board_w, board_h, Theme::BG_OVERLAY);
 
-    int card_w = 500;
-    int card_h = 340;
-    int card_x = sw / 2 - card_w / 2;
-    int card_y = sh / 2 - card_h / 2;
+        // Card sized to fit the text
+        int fnt = 48;
+        int tw = gfx_.text_width(msg, fnt);
+        int card_w = tw + 60;
+        int card_h = fnt + 40;
+        int card_x = board_x + (board_w - card_w) / 2;
+        int card_y = board_y + (board_h - card_h) / 2;
 
-    gfx_.draw_rect(card_x, card_y, card_w, card_h, Theme::BG_PANEL);
-    gfx_.draw_rect_outline(card_x, card_y, card_w, card_h,
-                           Theme::BORDER_PANEL);
+        gfx_.draw_rect(card_x, card_y, card_w, card_h, Theme::BG_PANEL);
+        gfx_.draw_rect_outline(card_x, card_y, card_w, card_h,
+                               Theme::BORDER_PANEL);
 
-    int cx = sw / 2;
-    int y = card_y + 25;
+        gfx_.draw_text(card_x + (card_w - tw) / 2, card_y + (card_h - fnt) / 2,
+                       msg, fnt, clr);
+    };
+
+    int bw = layout.board_w;
+    int bh = layout.board_h;
+    int frame = 4; // matches draw_board frame
 
     if (player_won) {
-        const char *msg = "ROUND WIN!";
-        int fnt = 52;
-        int w = gfx_.text_width(msg, fnt);
-        gfx_.draw_text(cx - w / 2, y, msg, fnt, Theme::WIN_GREEN);
+        draw_card(layout.left_board_x - frame, layout.board_y - frame,
+                  bw + frame * 2, bh + frame * 2,
+                  "ROUND WIN!", Theme::WIN_GREEN);
+        draw_card(layout.right_board_x - frame, layout.board_y - frame,
+                  bw + frame * 2, bh + frame * 2,
+                  "ROUND LOST!", Theme::LOSE_RED);
     } else {
-        const char *msg = "ROUND LOSS";
-        int fnt = 52;
-        int w = gfx_.text_width(msg, fnt);
-        gfx_.draw_text(cx - w / 2, y, msg, fnt, Theme::LOSE_RED);
+        draw_card(layout.left_board_x - frame, layout.board_y - frame,
+                  bw + frame * 2, bh + frame * 2,
+                  "ROUND LOST!", Theme::LOSE_RED);
+        draw_card(layout.right_board_x - frame, layout.board_y - frame,
+                  bw + frame * 2, bh + frame * 2,
+                  "ROUND WIN!", Theme::WIN_GREEN);
     }
-    y += 65;
-
-    std::string rnd = fmt("Round %d", round_num);
-    int rw = gfx_.text_width(rnd.c_str(), 28);
-    gfx_.draw_text(cx - rw / 2, y, rnd.c_str(), 28, Theme::TEXT_PRIMARY);
-    y += 40;
-
-    std::string w_str = fmt("Wins: %d", wins);
-    std::string l_str = fmt("Losses: %d", losses);
-    gfx_.draw_text(cx - 120, y, w_str.c_str(), 26, Theme::WIN_GREEN);
-    gfx_.draw_text(cx + 30, y, l_str.c_str(), 26, Theme::LOSE_RED);
-    y += 40;
-
-    int total = wins + losses;
-    if (total > 0) {
-        int bar_w = 300;
-        int bar_h = 18;
-        int bar_x = cx - bar_w / 2;
-        int win_w = (wins * bar_w) / total;
-
-        gfx_.draw_rect(bar_x, y, win_w, bar_h, Theme::WIN_GREEN);
-        gfx_.draw_rect(bar_x + win_w, y, bar_w - win_w, bar_h,
-                       Theme::LOSE_RED);
-        gfx_.draw_rect_outline(bar_x, y, bar_w, bar_h, Theme::BORDER_PANEL);
-
-        int pct = (wins * 100) / total;
-        std::string pct_str = fmt("%d%%", pct);
-        gfx_.draw_text(bar_x + bar_w + 10, y - 1, pct_str.c_str(), 22,
-                       Theme::GOLD);
-        y += 35;
-    }
-
-    y += 10;
-
-    const char *instr = "Any key: continue | ESC: quit";
-    int ifnt = 20;
-    int iw = gfx_.text_width(instr, ifnt);
-    gfx_.draw_text(cx - iw / 2, y, instr, ifnt, Theme::TEXT_SECONDARY);
 }
 
 // ====================== BOT BATTLE HUD ======================

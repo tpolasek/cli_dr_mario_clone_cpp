@@ -638,9 +638,7 @@ int main(int argc, char *argv[]) {
           (int)state.player_attacks.size(),
           (int)state.bot_attacks.size(), state.wins, state.losses,
           state.round_num, layout, time);
-      renderer.draw_round_end(state.player_won, state.wins, state.losses,
-                              state.round_num, layout.screen_w,
-                              layout.screen_h);
+      renderer.draw_round_end(state.player_won, layout);
       break;
 
     case Scene::BOT_BATTLE:

@@ -73,8 +73,7 @@ class UIRenderer {
                           const LayoutMetrics &layout, float time);
 
     // Round end overlay
-    void draw_round_end(bool player_won, int wins, int losses, int round_num,
-                        int sw, int sh);
+    void draw_round_end(bool player_won, const LayoutMetrics &layout);
 
     // Bot battle
     void draw_bot_battle_hud(const std::string &bot1_name,
