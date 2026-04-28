@@ -11,9 +11,20 @@ else
 endif
 
 TARGET = drmario
-SRC = raylib_main.cpp raylib_renderer.cpp game.cpp board.cpp sound.cpp
+
+# Platform-agnostic UI code
+UI_SRC = ui_renderer.cpp
+# Raylib-specific backend
+GFX_SRC = gfx_raylib.cpp
+# Shared game code
+GAME_SRC = raylib_main.cpp game.cpp board.cpp sound.cpp
+# Bot AI
 BOT_SRC = $(wildcard bot/*.cpp)
-HDR = constants.h board.h game.h raylib_renderer.h sound.h bot/bot_registry.h $(wildcard bot/bot_*.h)
+# Headers
+HDR = gfx.h ui_theme.h ui_renderer.h gfx_raylib.h \
+      constants.h board.h game.h sound.h bot/bot_registry.h $(wildcard bot/bot_*.h)
+
+SRC = $(GAME_SRC) $(UI_SRC) $(GFX_SRC)
 
 $(TARGET): $(SRC) $(BOT_SRC) $(HDR)
 	$(CXX) $(CXXFLAGS) -o $(TARGET) $(SRC) $(BOT_SRC) $(LDFLAGS)

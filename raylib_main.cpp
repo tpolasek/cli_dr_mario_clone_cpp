@@ -1,23 +1,29 @@
 /*
- * Dr. Mario Clone — Raylib Edition (2-Player vs Bot)
+ * Dr. Mario Clone — Platform-Agnostic Edition (2-Player vs Bot)
  * Compile: make
  * Run:     ./drmario
  *          ./drmario --bot1 <name> --bot2 <name>
  * Controls: Arrow keys = Move/Drop/Rotate, ESC = Quit
+ *
+ * Rendering uses the Gfx abstraction (gfx.h).
+ * The raylib backend is in gfx_raylib.h/.cpp.
+ * All UI drawing is in ui_renderer.h/.cpp (platform-agnostic).
  */
 
-#include "raylib.h"
+#include "gfx_raylib.h"
+#include "sound.h"
 
 // Undef raylib color macros that conflict with our game color constants
 #undef RED
 #undef YELLOW
 #undef BLUE
+#undef GOLD
 
+#include "ui_renderer.h"
+#include "ui_theme.h"
 #include "board.h"
 #include "bot/bot_registry.h"
 #include "game.h"
-#include "raylib_renderer.h"
-#include "sound.h"
 
 #include <cstdlib>
 #include <ctime>
@@ -69,12 +75,11 @@ struct InputState {
   int right_counter = 0;
   int down_counter = 0;
 
-  static constexpr int REPEAT_DELAY = 15; // frames before repeat starts
-  static constexpr int REPEAT_RATE = 3;   // frames between repeats
+  static constexpr int REPEAT_DELAY = 15;
+  static constexpr int REPEAT_RATE = 3;
 };
 
 static Move get_player_move(InputState &input) {
-  // Rotate: no auto-repeat
   if (IsKeyPressed(KEY_UP))
     return Move::ROTATE;
 
@@ -201,7 +206,6 @@ struct GameState {
   int losses = 0;
   int round_num = 0;
 
-  // Mode settings (set from title selection)
   int virus_count = 3;
   int base_drop_speed = 60;
   std::string bot_name = "kid";
@@ -259,7 +263,6 @@ static void init_round(GameState &state) {
   state.player.init(virus_count, seed);
   state.bot_board.init(virus_count, seed);
 
-  // Clear attack queues
   while (!state.player_attacks.empty())
     state.player_attacks.pop();
   while (!state.bot_attacks.empty())
@@ -319,18 +322,15 @@ static void score_bot_battle_trial(GameState &state) {
   auto &b1 = state.battle_board1;
   auto &b2 = state.battle_board2;
 
-  // Board2 topped out, board1 didn't
   if (b2.game_over && !b1.game_over) {
     state.battle_wins1++;
     return;
   }
-  // Board1 topped out, board2 didn't
   if (b1.game_over && !b2.game_over) {
     state.battle_wins2++;
     return;
   }
 
-  // Both finished — use first_winner
   if (state.battle_first_winner == 1) {
     if (state.battle_loser_delta > MIN_LOSS_TICK_THRESHOLD) {
       state.battle_wins1++;
@@ -340,7 +340,6 @@ static void score_bot_battle_trial(GameState &state) {
       state.battle_wins2++;
     }
   }
-  // Tie (first_winner == 0) → no winner for this trial
 }
 
 static void init_bot_battle(GameState &state, const CliArgs &args) {
@@ -366,15 +365,13 @@ static void update_title(GameState &state) {
   int key = GetKeyPressed();
   while (key > 0) {
     if (key == KEY_UP) {
-      state.title_selected =
-          (state.title_selected + 2) % 3; // wrap backwards
+      state.title_selected = (state.title_selected + 2) % 3;
     } else if (key == KEY_DOWN) {
       state.title_selected = (state.title_selected + 1) % 3;
     } else if (key == KEY_ESCAPE) {
       state.scene = Scene::QUIT;
       return;
     } else {
-      // Any other key confirms selection
       apply_mode(state, state.title_selected);
       init_round(state);
       state.scene = Scene::GAME;
@@ -390,13 +387,11 @@ static void update_game(GameState &state) {
     return;
   }
 
-  // Player input
   Move player_move = Move::NONE;
   if (state.player.phase == Phase::PLAYING) {
     player_move = get_player_move(state.input);
   }
 
-  // Bot input
   Move bot_move = Move::NONE;
   if (state.bot_board.phase == Phase::PLAYING &&
       (state.ticks - state.bot_last_move >= BOT_INPUT_TICK_RATE)) {
@@ -404,13 +399,11 @@ static void update_game(GameState &state) {
     bot_move = state.bot->get_move(state.bot_board);
   }
 
-  // Apply moves
   if (state.player.phase == Phase::PLAYING)
     state.player.apply_move(player_move);
   if (state.bot_board.phase == Phase::PLAYING)
     state.bot_board.apply_move(bot_move);
 
-  // Process phases
   process_phases(state.player, state.player_attacks, state.bot_attacks,
                  state.player_last_drop, state.player_last_gravity,
                  state.ticks, state.drop_speed);
@@ -421,7 +414,6 @@ static void update_game(GameState &state) {
   state.ticks++;
   state.anim_frame++;
 
-  // Check end conditions
   if (state.player.game_won || state.bot_board.game_over) {
     state.player_won = true;
     state.wins++;
@@ -443,12 +435,10 @@ static void update_round_end(GameState &state) {
       state.scene = Scene::QUIT;
       return;
     }
-    // Check if match is over (first to MATCH_WINS)
     if (state.wins >= MATCH_WINS || state.losses >= MATCH_WINS) {
       init_title(state);
       return;
     }
-    // Any other key → next round
     init_round(state);
     state.scene = Scene::GAME;
     return;
@@ -461,15 +451,11 @@ static void update_bot_battle(GameState &state) {
     return;
   }
 
-  // Process multiple ticks per frame for faster playback
   for (int i = 0; i < BATTLE_TICKS_PER_FRAME; i++) {
     auto &b1 = state.battle_board1;
     auto &b2 = state.battle_board2;
 
-    // Check if trial is over
-    if (b1.game_over || b2.game_over ||
-        (b1.game_won && b2.game_won)) {
-      // Score this trial
+    if (b1.game_over || b2.game_over || (b1.game_won && b2.game_won)) {
       score_bot_battle_trial(state);
 
       state.battle_trial++;
@@ -480,12 +466,10 @@ static void update_bot_battle(GameState &state) {
         return;
       }
 
-      // Next trial
       init_bot_battle_trial(state);
-      return; // restart loop next frame
+      return;
     }
 
-    // Bot moves
     Move move1 = Move::NONE;
     if (!b1.game_won && b1.phase == Phase::PLAYING &&
         (state.battle_ticks - state.battle_last_move1 >=
@@ -516,7 +500,6 @@ static void update_bot_battle(GameState &state) {
                      state.battle_last_drop2, state.battle_last_grav2,
                      state.battle_ticks, state.battle_drop2);
 
-    // Track first winner
     if (state.battle_first_winner == -1) {
       if (b1.game_won && b2.game_won)
         state.battle_first_winner = 0;
@@ -541,67 +524,8 @@ static void update_bot_battle_result(GameState &state) {
       state.scene = Scene::QUIT;
       return;
     }
-    // Any other key → back to title
     init_title(state);
     return;
-  }
-}
-
-// ====================== DRAWING ======================
-
-static void draw_scene(GameState &state,
-                       const LayoutMetrics &layout, float time) {
-
-  switch (state.scene) {
-  case Scene::TITLE:
-    draw_title_screen(state.title_selected, state.decor_viruses, time,
-                      layout.screen_w, layout.screen_h);
-    break;
-
-  case Scene::GAME:
-    draw_board(state.player, layout.left_x, layout.left_y, layout.cell_size,
-               time);
-    draw_board(state.bot_board, layout.right_x, layout.right_y,
-               layout.cell_size, time);
-    draw_game_hud(state.player, state.bot_board,
-                  (int)state.player_attacks.size(),
-                  (int)state.bot_attacks.size(), state.wins, state.losses,
-                  state.round_num, layout, time);
-    break;
-
-  case Scene::ROUND_END:
-    // Draw boards in background
-    draw_board(state.player, layout.left_x, layout.left_y, layout.cell_size,
-               time);
-    draw_board(state.bot_board, layout.right_x, layout.right_y,
-               layout.cell_size, time);
-    draw_game_hud(state.player, state.bot_board,
-                  (int)state.player_attacks.size(),
-                  (int)state.bot_attacks.size(), state.wins, state.losses,
-                  state.round_num, layout, time);
-    draw_round_end_screen(state.player_won, state.wins, state.losses,
-                          state.round_num, layout.screen_w, layout.screen_h);
-    break;
-
-  case Scene::BOT_BATTLE:
-    draw_board(state.battle_board1, layout.left_x, layout.left_y,
-               layout.cell_size, time);
-    draw_board(state.battle_board2, layout.right_x, layout.right_y,
-               layout.cell_size, time);
-    draw_bot_battle_hud(state.battle_bot1_name, state.battle_bot2_name,
-                        state.battle_wins1, state.battle_wins2,
-                        state.battle_trial, NUM_BATTLE_TRIALS, layout);
-    break;
-
-  case Scene::BOT_BATTLE_RESULT:
-    draw_bot_battle_result_screen(state.battle_bot1_name,
-                                  state.battle_bot2_name,
-                                  state.result_wins1, state.result_wins2,
-                                  layout.screen_w, layout.screen_h);
-    break;
-
-  case Scene::QUIT:
-    break;
   }
 }
 
@@ -611,17 +535,21 @@ int main(int argc, char *argv[]) {
   std::srand(static_cast<unsigned>(std::time(nullptr)));
   CliArgs args = parse_args(argc, argv);
 
-  // Init raylib
+  // Init raylib window (platform-specific — only in this file)
   InitWindow(SCREEN_W, SCREEN_H, "Dr. Mario");
   SetTargetFPS(TARGET_FPS);
 
-  // Load background
-  Texture2D bg = LoadTexture("bg.png");
+  // Init graphics backend
+  GfxRaylib gfx;
+  UIRenderer renderer(gfx);
 
-  // Init audio
+  // Load background texture through the abstraction
+  Gfx::Tex bg_tex = gfx.load_texture("bg.png");
+
+  // Init audio (raylib-specific, handled separately)
   MusicPlayer music;
 
-  // Compute layout
+  // Compute layout (platform-agnostic)
   LayoutMetrics layout = compute_layout(SCREEN_W, SCREEN_H);
 
   // Init game state
@@ -635,7 +563,6 @@ int main(int argc, char *argv[]) {
 
   // Main loop
   while (!WindowShouldClose() && state.scene != Scene::QUIT) {
-    // Update music
     music.update();
 
     // Update scene
@@ -665,24 +592,75 @@ int main(int argc, char *argv[]) {
       if (music.is_available())
         music.start("queque.mp3");
       music_playing = true;
-    } else if (state.scene != Scene::GAME && state.scene != Scene::BOT_BATTLE &&
-               music_playing) {
+    } else if (state.scene != Scene::GAME &&
+               state.scene != Scene::BOT_BATTLE && music_playing) {
       music.stop();
       music_playing = false;
     }
 
     // Draw
     float time = (float)GetTime();
-    BeginDrawing();
-    ClearBackground(BLACK);
-    draw_bg(bg, layout.screen_w, layout.screen_h);
-    draw_scene(state, layout, time);
-    EndDrawing();
+    gfx.begin_frame(SCREEN_W, SCREEN_H);
+    gfx.clear(Theme::BG_DEEP);
+
+    // Background (always drawn)
+    renderer.draw_bg(bg_tex, layout.screen_w, layout.screen_h);
+
+    // Scene-specific drawing (all platform-agnostic)
+    switch (state.scene) {
+    case Scene::TITLE:
+      renderer.draw_title_screen(state.title_selected,
+                                 state.decor_viruses, time,
+                                 layout.screen_w, layout.screen_h);
+      break;
+
+    case Scene::GAME:
+      renderer.draw_game_screen(
+          state.player, state.bot_board,
+          (int)state.player_attacks.size(),
+          (int)state.bot_attacks.size(), state.wins, state.losses,
+          state.round_num, layout, time);
+      break;
+
+    case Scene::ROUND_END:
+      renderer.draw_game_screen(
+          state.player, state.bot_board,
+          (int)state.player_attacks.size(),
+          (int)state.bot_attacks.size(), state.wins, state.losses,
+          state.round_num, layout, time);
+      renderer.draw_round_end(state.player_won, state.wins, state.losses,
+                              state.round_num, layout.screen_w,
+                              layout.screen_h);
+      break;
+
+    case Scene::BOT_BATTLE:
+      renderer.draw_board(state.battle_board1, layout.left_board_x,
+                          layout.board_y, layout.cell_size, time);
+      renderer.draw_board(state.battle_board2, layout.right_board_x,
+                          layout.board_y, layout.cell_size, time);
+      renderer.draw_bot_battle_hud(
+          state.battle_bot1_name, state.battle_bot2_name,
+          state.battle_wins1, state.battle_wins2, state.battle_trial,
+          NUM_BATTLE_TRIALS, layout);
+      break;
+
+    case Scene::BOT_BATTLE_RESULT:
+      renderer.draw_bot_battle_result(
+          state.battle_bot1_name, state.battle_bot2_name,
+          state.result_wins1, state.result_wins2, layout.screen_w,
+          layout.screen_h);
+      break;
+
+    case Scene::QUIT:
+      break;
+    }
+
+    gfx.end_frame();
   }
 
   // Cleanup
   music.stop();
-  UnloadTexture(bg);
+  gfx.free_texture(bg_tex);
   CloseWindow();
 
   return 0;
