@@ -98,9 +98,14 @@ class UIRenderer {
                                  int color);
     bool draw_hcap_sprite(int dst_x, int dst_y, int dst_w, int dst_h,
                           int h1, int h2);
+    bool draw_vcap_sprite(int dst_x, int dst_y, int dst_w, int dst_h,
+                          int top_color, int bottom_color);
     void draw_active_capsule(const Capsule &cap, int bx, int by, int cs);
     void draw_stamped_piece(int r, int c, int color, int bx, int by, int cs);
     void draw_connected_hcap(int r, int c_left, int c_right,
                              int color_left, int color_right,
+                             int bx, int by, int cs);
+    void draw_connected_vcap(int r_top, int r_bottom, int c,
+                             int top_color, int bottom_color,
                              int bx, int by, int cs);
 };

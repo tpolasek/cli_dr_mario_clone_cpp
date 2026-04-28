@@ -218,6 +218,25 @@ bool UIRenderer::draw_hcap_sprite(int dst_x, int dst_y, int dst_w, int dst_h,
     return false;
 }
 
+// ====================== DRAW A VERTICAL CAPSULE SPRITE ======================
+
+bool UIRenderer::draw_vcap_sprite(int dst_x, int dst_y, int dst_w, int dst_h,
+                                  int top_color, int bottom_color) {
+    if (!sprites_)
+        return false;
+
+    SpriteName<48> name("cap_%s_%s_vertical",
+                        color_char(top_color), color_char(bottom_color));
+    const SpriteRegion *sr = sprites_->get(name);
+    if (sr) {
+        gfx_.draw_texture_region(sprites_->texture(),
+                                 sr->x, sr->y, sr->w, sr->h,
+                                 dst_x, dst_y, dst_w, dst_h);
+        return true;
+    }
+    return false;
+}
+
 // ====================== ACTIVE CAPSULE ======================
 
 void UIRenderer::draw_active_capsule(const Capsule &cap, int bx, int by,
@@ -264,8 +283,13 @@ void UIRenderer::draw_active_capsule(const Capsule &cap, int bx, int by,
         int y = by + min_r * cs + pad;
         int w = cs - pad * 2;
         int full_h = (max_r - min_r + 1) * cs - pad * 2;
-        int half_h = full_h / 2;
 
+        // Try vertical sprite
+        if (draw_vcap_sprite(x, y, w, full_h, top_color, bottom_color))
+            return;
+
+        // Fallback: two halves
+        int half_h = full_h / 2;
         if (sprites_) {
             draw_single_cap_sprite(x, y, w, half_h, top_color);
             draw_single_cap_sprite(x, y + half_h, w, half_h, bottom_color);
@@ -321,6 +345,32 @@ void UIRenderer::draw_connected_hcap(int r, int c_left, int c_right,
     }
 }
 
+// ====================== DRAW CONNECTED VERTICAL PAIR ON BOARD ======================
+
+void UIRenderer::draw_connected_vcap(int r_top, int r_bottom, int c,
+                                     int top_color, int bottom_color,
+                                     int bx, int by, int cs) {
+    int pad = 2;
+    int x = bx + c * cs + pad;
+    int y = by + r_top * cs + pad;
+    int w = cs - pad * 2;
+    int h = (r_bottom - r_top + 1) * cs - pad * 2;
+
+    if (draw_vcap_sprite(x, y, w, h, top_color, bottom_color))
+        return;
+
+    // Fallback: draw two single cells
+    int half_h = h / 2;
+    if (sprites_) {
+        draw_single_cap_sprite(x, y, w, half_h, top_color);
+        draw_single_cap_sprite(x, y + half_h, w, half_h, bottom_color);
+    } else {
+        draw_pill_cell(x, y, w, half_h, top_color, true, false, true, true);
+        draw_pill_cell(x, y + half_h, w, half_h, bottom_color, false, true,
+                       true, true);
+    }
+}
+
 // ====================== BOARD ======================
 
 void UIRenderer::draw_board(const PlayerBoard &board, int bx, int by,
@@ -346,43 +396,58 @@ void UIRenderer::draw_board(const PlayerBoard &board, int bx, int by,
         gfx_.draw_line(x, by, x, by + bh, Theme::GRID_LINE);
     }
 
-    // Draw cells — scan left-to-right to handle horizontal capsule pairs
+    // Draw cells — scan for connected pairs (horizontal and vertical)
+    // We track drawn cells to avoid double-drawing pairs.
+    bool drawn[ROWS][COLS] = {};
+
     for (int r = 0; r < ROWS; r++) {
-        for (int c = 0; c < COLS; /* c advanced in loop */) {
+        for (int c = 0; c < COLS; c++) {
+            if (drawn[r][c])
+                continue;
             const Piece &p = board.grid[r][c];
             if (p.color == EMPTY) {
-                c++;
                 continue;
             }
 
-            int cx = bx + c * cell_size + cell_size / 2;
-            int cy = by + r * cell_size + cell_size / 2;
-
             if (p.virus) {
+                int cx = bx + c * cell_size + cell_size / 2;
+                int cy = by + r * cell_size + cell_size / 2;
                 float vr = (float)(cell_size / 2 - 2);
                 float phase = (float)(r * COLS + c) * 1.7f;
                 draw_virus_sprite(cx, cy, vr, p.color, time, phase);
-                c++;
+                drawn[r][c] = true;
                 continue;
             }
 
             // Check for horizontal connection (same capId to the right)
-            int next_c = c + 1;
-            if (next_c < COLS) {
-                const Piece &neighbor = board.grid[r][next_c];
+            if (c + 1 < COLS) {
+                const Piece &neighbor = board.grid[r][c + 1];
                 if (!neighbor.virus && neighbor.color != EMPTY &&
                     neighbor.capId == p.capId && p.capId != 0) {
-                    // Connected horizontal pair — draw as one sprite
-                    draw_connected_hcap(r, c, next_c, p.color, neighbor.color,
+                    draw_connected_hcap(r, c, c + 1, p.color, neighbor.color,
                                         bx, by, cell_size);
-                    c += 2; // skip both cells
+                    drawn[r][c] = true;
+                    drawn[r][c + 1] = true;
                     continue;
                 }
             }
 
-            // Standalone cell (or vertical connection drawn as individual)
+            // Check for vertical connection (same capId below)
+            if (r + 1 < ROWS) {
+                const Piece &neighbor = board.grid[r + 1][c];
+                if (!neighbor.virus && neighbor.color != EMPTY &&
+                    neighbor.capId == p.capId && p.capId != 0) {
+                    draw_connected_vcap(r, r + 1, c, p.color, neighbor.color,
+                                        bx, by, cell_size);
+                    drawn[r][c] = true;
+                    drawn[r + 1][c] = true;
+                    continue;
+                }
+            }
+
+            // Standalone cell
             draw_stamped_piece(r, c, p.color, bx, by, cell_size);
-            c++;
+            drawn[r][c] = true;
         }
     }
 

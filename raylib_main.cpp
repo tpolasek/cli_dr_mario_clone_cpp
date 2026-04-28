@@ -548,8 +548,8 @@ int main(int argc, char *argv[]) {
 
   // Load sprite sheet for capsules and viruses
   SpriteSheet sprites;
-  bool has_sprites = sprites.load(gfx, "dr_mario_sprites.png",
-                                    "dr_mario_sprites.def");
+  bool has_sprites = sprites.load(gfx, "dr_mario_spirtes2.png",
+                                    "dr_mario_spirtes2.def");
 
   // Init audio (raylib-specific, handled separately)
   MusicPlayer music;
