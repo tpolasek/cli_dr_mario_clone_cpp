@@ -5,55 +5,55 @@
 
 // ====================== RETRO PIXEL THEME ======================
 // Unified color palette for the entire UI.
-// NES-inspired: dark blue-purple base, bright saturated game pieces.
+// Retro high-contrast: pure black base, bright saturated NES-style colors.
 
 namespace Theme {
 
-// --- Backgrounds ---
-constexpr UIColor BG_DEEP{8, 8, 24};
-constexpr UIColor BG_BOARD{16, 14, 36};
-constexpr UIColor BG_PANEL{22, 18, 46};
-constexpr UIColor BG_CELL_EMPTY{20, 16, 42};
+// --- Backgrounds (pure black) ---
+constexpr UIColor BG_DEEP{0, 0, 0};
+constexpr UIColor BG_BOARD{0, 0, 0};
+constexpr UIColor BG_PANEL{10, 10, 10};
+constexpr UIColor BG_CELL_EMPTY{10, 10, 10};
 constexpr UIColor BG_OVERLAY{0, 0, 0, 180};
 constexpr UIColor BG_HIGHLIGHT{255, 255, 255, 50};
 
 // --- Grid ---
-constexpr UIColor GRID_LINE{32, 28, 56};
+constexpr UIColor GRID_LINE{30, 30, 30};
 
-// --- Borders ---
-constexpr UIColor BORDER_BOARD{90, 75, 145};
-constexpr UIColor BORDER_PANEL{70, 60, 120};
-constexpr UIColor BORDER_NEXT{60, 50, 100};
-constexpr UIColor BORDER_GRID{100, 85, 160};
+// --- Borders (bright retro gray / white) ---
+constexpr UIColor BORDER_BOARD{190, 190, 190};
+constexpr UIColor BORDER_PANEL{140, 140, 140};
+constexpr UIColor BORDER_NEXT{120, 120, 120};
+constexpr UIColor BORDER_GRID{160, 160, 160};
 
-// --- Text ---
-constexpr UIColor TEXT_TITLE{255, 220, 80};
-constexpr UIColor TEXT_PRIMARY{240, 235, 220};
-constexpr UIColor TEXT_SECONDARY{160, 152, 180};
-constexpr UIColor TEXT_DIM{100, 95, 125};
+// --- Text (high contrast on black) ---
+constexpr UIColor TEXT_TITLE{255, 255, 255};
+constexpr UIColor TEXT_PRIMARY{255, 255, 255};
+constexpr UIColor TEXT_SECONDARY{180, 180, 180};
+constexpr UIColor TEXT_DIM{120, 120, 120};
 
-// --- Status ---
-constexpr UIColor WIN_GREEN{80, 220, 80};
-constexpr UIColor LOSE_RED{240, 60, 60};
-constexpr UIColor GOLD{255, 210, 50};
+// --- Status (bright NES palette) ---
+constexpr UIColor WIN_GREEN{0, 230, 0};
+constexpr UIColor LOSE_RED{255, 50, 50};
+constexpr UIColor GOLD{255, 230, 0};
 constexpr UIColor ATTACK_RED{255, 80, 60};
 
 // --- Eyes ---
-constexpr UIColor EYE_WHITE{240, 240, 240};
-constexpr UIColor EYE_PUPIL{20, 15, 40};
+constexpr UIColor EYE_WHITE{255, 255, 255};
+constexpr UIColor EYE_PUPIL{0, 0, 0};
 
-// --- Pill Colors (bright / highlight / shadow for bevel) ---
-constexpr UIColor PILL_RED{220, 50, 50};
-constexpr UIColor PILL_RED_LT{255, 120, 120};
-constexpr UIColor PILL_RED_DK{150, 30, 30};
+// --- Pill Colors (bright NES / highlight / shadow for bevel) ---
+constexpr UIColor PILL_RED{230, 50, 50};
+constexpr UIColor PILL_RED_LT{255, 130, 130};
+constexpr UIColor PILL_RED_DK{160, 30, 30};
 
-constexpr UIColor PILL_YELLOW{240, 210, 40};
-constexpr UIColor PILL_YELLOW_LT{255, 245, 130};
-constexpr UIColor PILL_YELLOW_DK{170, 145, 20};
+constexpr UIColor PILL_YELLOW{255, 230, 40};
+constexpr UIColor PILL_YELLOW_LT{255, 250, 150};
+constexpr UIColor PILL_YELLOW_DK{180, 160, 20};
 
-constexpr UIColor PILL_BLUE{50, 90, 220};
-constexpr UIColor PILL_BLUE_LT{120, 155, 255};
-constexpr UIColor PILL_BLUE_DK{30, 60, 150};
+constexpr UIColor PILL_BLUE{60, 100, 240};
+constexpr UIColor PILL_BLUE_LT{140, 170, 255};
+constexpr UIColor PILL_BLUE_DK{30, 60, 160};
 
 // --- Pill color lookup ---
 inline constexpr UIColor pill_color(int c) {
@@ -86,18 +86,18 @@ inline constexpr UIColor pill_dark(int c) {
 // --- Virus colors (slightly different from pills) ---
 inline constexpr UIColor virus_body(int c) {
     switch (c) {
-    case RED:    return {230, 65, 65};
-    case YELLOW: return {250, 230, 65};
-    case BLUE:   return {65, 120, 240};
+    case RED:    return {240, 60, 60};
+    case YELLOW: return {255, 240, 60};
+    case BLUE:   return {70, 130, 255};
     default:     return {128, 128, 128};
     }
 }
 
 inline constexpr UIColor virus_legs(int c) {
     switch (c) {
-    case RED:    return {160, 40, 40};
-    case YELLOW: return {180, 155, 35};
-    case BLUE:   return {35, 75, 165};
+    case RED:    return {180, 40, 40};
+    case YELLOW: return {200, 180, 30};
+    case BLUE:   return {40, 80, 180};
     default:     return {80, 80, 80};
     }
 }

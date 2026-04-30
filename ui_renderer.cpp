@@ -677,29 +677,34 @@ void UIRenderer::draw_title_screen(int selected,
     int opt_font = 32;
     int desc_font = 20;
     int opt_h = 90;
+    int bar_w = 560;
+    int bar_h = 75;
+    int bar_x = sw / 2 - bar_w / 2;
     int total_h = 3 * opt_h;
     int start_y = sh / 2 - total_h / 2 + 40;
 
+    UIColor bg_normal{0, 0, 0, 220};
+    UIColor bg_selected{40, 40, 40, 250};
+    UIColor border_normal{120, 120, 120, 220};
+    UIColor border_selected{Theme::GOLD.r, Theme::GOLD.g, Theme::GOLD.b, 255};
+
     for (int i = 0; i < 3; i++) {
         int y = start_y + i * opt_h;
+        bool sel = (i == selected);
 
-        if (i == selected) {
-            int bar_w = 560;
-            int bar_h = 75;
-            int bar_x = sw / 2 - bar_w / 2;
-            gfx_.draw_rect(bar_x, y - 4, bar_w, bar_h, Theme::BG_HIGHLIGHT);
-            gfx_.draw_rect_outline(bar_x, y - 4, bar_w, bar_h,
-                                   Theme::BORDER_PANEL);
-        }
+        gfx_.draw_rect(bar_x, y - 4, bar_w, bar_h,
+                        sel ? bg_selected : bg_normal);
+        gfx_.draw_rect_outline(bar_x, y - 4, bar_w, bar_h,
+                               sel ? border_selected : border_normal);
 
-        UIColor name_clr =
-            (i == selected) ? Theme::GOLD : Theme::TEXT_SECONDARY;
+        UIColor name_clr = sel ? Theme::GOLD : Theme::TEXT_PRIMARY;
         int nw = gfx_.text_width(opts[i].name, opt_font);
         gfx_.draw_text(sw / 2 - nw / 2, y, opts[i].name, opt_font, name_clr);
 
+        UIColor desc_clr = sel ? Theme::TEXT_PRIMARY : Theme::TEXT_SECONDARY;
         int dw = gfx_.text_width(opts[i].desc, desc_font);
         gfx_.draw_text(sw / 2 - dw / 2, y + 38, opts[i].desc, desc_font,
-                       Theme::TEXT_DIM);
+                       desc_clr);
     }
 
     const char *instr = "Up/Down to select | Enter to confirm | ESC to quit";
